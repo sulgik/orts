@@ -1,10 +1,10 @@
-# Robust Multi-Armed-Bandit
+# Robust Multi-Armed Bandit
 
 ```
-import logisticbandit
-from logisticbandit import BanditParameters
+from bandit import BanditParameters
 
-# construct an experiment
+# default parameter, odds_ratos_only = True, discount = .2
+
 orpar = BanditParameters()
 
 
@@ -26,11 +26,14 @@ orpar.win_prop()
 
 
 # third overvation (model remove)
+orpar.delete("model_2")
+
 obs = {"model_1": [30000, 310], "model_3": [30000, 300]}
 orpar.update(obs)
 
+
 orpar.win_prop()
 
-# one can control aggressive parameter in win_prop (default is 0.1)
+# one can control aggressive parameter in win_prop
 orpar.win_prop(aggressive = 1.0)
 ```
