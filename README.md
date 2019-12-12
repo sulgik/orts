@@ -8,7 +8,8 @@ from logisticbandit import LogisticBandit
 orpar = LogisticBandit()
 
 
-# first observation
+# first update
+
 obs = {"model_1": [30000, 300], "model_2": [30000, 290]}
 orpar.update(obs)
 
@@ -18,22 +19,19 @@ orpar.get_par(["model_1", "model_2"])
 orpar.win_prop()
 
 
-# second overvation (model insert)
+# Use Odds Ratio prior only
 obs = {"model_1": [20000, 200], "model_2": [20000, 180], "model_3": [20000, 210]}
 orpar.update(obs)
 
+
 orpar.win_prop()
 
 
-# third overvation (model remove)
-orpar.delete("model_2")
+# Full Rank update
 
 obs = {"model_1": [30000, 310], "model_3": [30000, 300]}
-orpar.update(obs)
-
+orpar.update(obs, odds_ratios_only=False)
 
 orpar.win_prop()
 
-# one can control aggressive parameter in win_prop
-orpar.win_prop(aggressive = 1.0)
 ```

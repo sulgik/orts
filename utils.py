@@ -29,9 +29,10 @@ def estimate(prior, obs, indexes, alpha_0, max_iter, discount = 0.):
     
     initial[-1] = np.log(p_ref/(1-p_ref))
 
-    if len(prior[0]) > 0:
-        initial[indexes[0]:] = \
-            initial[indexes[0]:] * .5 + prior[0][:] * .5
+    if prior[0] is not None:
+        if len(prior[0]) > 0:
+            initial[indexes[0]:] = \
+                initial[indexes[0]:] * .5 + prior[0][:] * .5
     
     # print(initial)
     mu_hat = _estimate_mu(
@@ -39,11 +40,19 @@ def estimate(prior, obs, indexes, alpha_0, max_iter, discount = 0.):
         alpha_0 = alpha_0, max_iter = max_iter)
 
     # sigma_inv
-
     sigma_inv = \
         _estimate_sigma_inv(mu_hat, prior, obs, indexes, discount)
         
     return mu_hat, sigma_inv
+
+def logistic(x):
+    if x > 0:
+        return 1. / (1. + np.exp(-x))
+    else:
+        return np.exp(x) / (1. + np.exp(x))
+
+def is_pos_semidef(x):
+    return np.all(np.linalg.eigvals(x) >= 0)
 
 
 def _estimate_mu(target_fn, gradient_fn, initial, alpha_0, max_iter):
@@ -138,8 +147,9 @@ def _build_fns(prior, obs, indexes, discount):
 
         # prior part
         grad_prior = np.zeros(num_dim)
-        grad_prior[index_prior] =\
-            - np.matmul(np.array(w[index_prior]) - prior[0], prior[1]) / total_number
+        if len(index_prior) > 0:
+            grad_prior[index_prior] =\
+                - np.matmul(np.array(w[index_prior]) - prior[0], prior[1]) / total_number
 
         # likelihood part
         grad_likelihood = np.zeros(num_dim)
@@ -150,12 +160,3 @@ def _build_fns(prior, obs, indexes, discount):
         return gradient_val
         
     return posterior, gradient
-
-def logistic(x):
-    if x > 0:
-        return 1. / (1. + np.exp(-x))
-    else:
-        return np.exp(x) / (1. + np.exp(x))
-
-def is_pos_semidef(x):
-    return np.all(np.linalg.eigvals(x) >= 0)

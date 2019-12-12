@@ -19,7 +19,7 @@ class LogisticBandit(object):
     def get_par(self, action_list=None):
 
         if not action_list:
-            return self.mu, self.sigma_inv
+            return None, None
 
         action_nonref = action_list[:-1]
         action_ref = action_list[-1]
@@ -53,12 +53,6 @@ class LogisticBandit(object):
         self.__init__(
             mu = mu, sigma_inv = sigma_inv, action_list = action_list)
 
-    def get_transformed(self, action_list):
-        mu, sigma_inv = self.get_par(action_list)
-        new_obj = LogisticBandit(
-            mu = mu, sigma_inv = sigma_inv, action_list = action_list)
-        return new_obj
-
     def update(
         self, obs, alpha_0 = 1., max_iter = 1000,
         odds_ratios_only = True, remove_not_observed = False,
@@ -85,11 +79,13 @@ class LogisticBandit(object):
             action_nonobserved = [x for x in self.get_models() if x not in obs_valid.keys()]
             action_list = action_newcome + action_nonobserved + action_on
 
+            print(action_nonobserved)
             prior = self.get_par(action_nonobserved + action_on)
-            if len(prior[0]) > 1 and odds_ratios_only:
-                sigma_inv_new = np.zeros((len(prior[0]), len(prior[0])))
-                sigma_inv_new[:-1,:-1] = inv(inv(prior[1])[:-1,:-1])
-                prior = (prior[0], sigma_inv_new)
+            if (prior[0] is not None) and odds_ratios_only:
+                if len(prior[0]) > 1:
+                    sigma_inv_new = np.zeros((len(prior[0]), len(prior[0])))
+                    sigma_inv_new[:-1,:-1] = inv(inv(prior[1])[:-1,:-1])
+                    prior = (prior[0], sigma_inv_new)
 
             obs_list = [obs_valid[action] for action in action_newcome + action_on]
             index = [len(action_newcome), len(action_newcome + action_nonobserved), len(action_list)]
