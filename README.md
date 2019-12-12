@@ -1,11 +1,11 @@
 # Robust Multi-Armed Bandit
 
 ```
-from bandit import BanditParameters
+from logisticbandit import LogisticBandit 
 
 # default parameter, odds_ratos_only = True, discount = .2
 
-orpar = BanditParameters()
+orpar = LogisticBandit()
 
 
 # first observation
