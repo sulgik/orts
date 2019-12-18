@@ -1,49 +1,48 @@
 import numpy as np
-from numpy.linalg import pinv
+from numpy import clip
+from scipy.optimize import minimize
+
 
 def estimate(prior, obs, indexes, alpha_0, max_iter, discount = 0.):
+    #
+    # estimate mu and using this estimate sigma inverse
+    #
+
     # mu
     target_fn, gradient_fn = _build_fns(prior, obs, indexes, discount)
+    initial_mu = _compute_initial(prior, obs, indexes)
 
-    # initial value for estimate
-    initial = np.zeros(indexes[2])
-
-    p_ref = float(obs[-1][1]) / float(obs[-1][0])
-    if p_ref == 1.:
-        p_ref -= .0001
-    elif p_ref == 0.:
-        p_ref += .0001
-    initial[-1] = np.log(p_ref / (1. - p_ref))
-
-    index_obs = \
-        [i for i in range(indexes[0])] + [i for i in range(indexes[1], indexes[2])]
-
-    for i,j in enumerate(index_obs[:-1]):
-        p = float(obs[i][1]) / float(obs[i][0])
-        if p == 1.:
-            p -= .0001
-        elif p == 0.:
-            p += .0001
-        
-        initial[j] = np.log(p/(1-p)) - np.log(p_ref/(1-p_ref))
-    
-    initial[-1] = np.log(p_ref/(1-p_ref))
-
-    if prior[0] is not None:
-        if len(prior[0]) > 0:
-            initial[indexes[0]:] = \
-                initial[indexes[0]:] * .5 + prior[0][:] * .5
-    
-    # print(initial)
-    mu_hat = _estimate_mu(
-        target_fn, gradient_fn, initial = initial, 
-        alpha_0 = alpha_0, max_iter = max_iter)
+    ww = minimize(target_fn, initial_mu, jac = gradient_fn, method = 'Newton-CG')
+    mu_hat = ww.x
+    # mu_hat = _estimate_mu(
+    #     target_fn, gradient_fn, initial = initial_mu, alpha_0 = alpha_0, max_iter = max_iter)
 
     # sigma_inv
     sigma_inv = \
         _estimate_sigma_inv(mu_hat, prior, obs, indexes, discount)
         
     return mu_hat, sigma_inv
+
+def _compute_initial(prior, obs, indexes):
+    index_obs = \
+        [i for i in range(indexes[0])] + [i for i in range(indexes[1], indexes[2])]
+
+    initial = np.zeros(indexes[2])
+
+    p_ref = np.clip(float(obs[-1][1]) / float(obs[-1][0]), .001, .999)
+    # initial[-1] = np.log(p_ref / (1. - p_ref))
+
+    for i, j in enumerate(index_obs[:-1]):
+        p = np.clip(float(obs[i][1]) / float(obs[i][0]), .001, .999)
+        initial[j] = np.log(p / (1. - p)) - np.log(p_ref / (1. - p_ref))
+    
+    if prior[0] is not None:
+        # if len(prior[0]) > 1:
+        initial[indexes[0]:] = prior[0]
+            # initial[indexes[0]:] = initial[indexes[0]:] * .5 + prior[0] * .5
+
+    return initial
+
 
 def logistic(x):
     if x > 0:
@@ -57,18 +56,22 @@ def is_pos_semidef(x):
 
 def _estimate_mu(target_fn, gradient_fn, initial, alpha_0, max_iter):
     w = initial
-    max_w, max_value = None, float("-Inf")
+    min_w, min_value = None, float("Inf")
     alpha = alpha_0
-    for _ in range(max_iter):
+
+    iters = 0
+#    while previous_step_size > .00001 and iters < max_iter:
+    while iters < max_iter:
         value = target_fn(w)
-        if value > max_value:
-            max_w, max_value = w, value
+        if value < min_value:
+            min_w, min_value = w, value
             alpha = alpha_0
         else:
             alpha *= .9
         gradient = gradient_fn(w)
-        w += alpha * gradient
-    return max_w
+        w -= alpha * gradient
+        iters += 1
+    return min_w
 
 
 def _estimate_sigma_inv(mu_hat, prior, obs, indexes, discount):
@@ -117,22 +120,22 @@ def _build_fns(prior, obs, indexes, discount):
     index_obs   = [i for i in range(indexes[0])] + [i for i in range(indexes[1], indexes[2])]
 
     def posterior(w): 
-        
+        # "negative" log likelihood which need to be maximize
+
         # prior
         prior_log = 0.
 
         if len(index_prior) > 0:
             w_mu_diff = np.array(w[index_prior]) - np.array(prior[0])
             prior_log = \
-                -0.5 * w_mu_diff.dot(prior[1]).dot(np.transpose(w_mu_diff)) / total_number
+                0.5 * w_mu_diff.dot(prior[1]).dot(np.transpose(w_mu_diff)) / total_number
 
         # likelihood
         p = np.array([logistic(w[i] + w[-1]) for i in index_obs[:-1]])
         p = np.append(p, logistic(w[-1]))
-        p = np.maximum(.0001, p)
-        p = np.minimum(.9999, p)
+        p = np.clip(p, .001, .999)
 
-        likelihood_k = (success_cnt * np.log(p) + (total_cnt - success_cnt) * np.log(1. - p)) / total_number
+        likelihood_k = - (success_cnt * np.log(p) + (total_cnt - success_cnt) * np.log(1. - p)) / total_number
         likelihood_log = np.sum(likelihood_k)
 
         posterior_log = (1. - discount) * prior_log + likelihood_log
@@ -149,12 +152,12 @@ def _build_fns(prior, obs, indexes, discount):
         grad_prior = np.zeros(num_dim)
         if len(index_prior) > 0:
             grad_prior[index_prior] =\
-                - np.matmul(np.array(w[index_prior]) - prior[0], prior[1]) / total_number
+                np.matmul(np.array(w[index_prior]) - prior[0], prior[1]) / total_number
 
         # likelihood part
         grad_likelihood = np.zeros(num_dim)
-        grad_likelihood[index_obs] = (success_cnt * (1. - p) - (total_cnt - success_cnt) * p) / total_number
-        grad_likelihood[-1] = sum(grad_likelihood)
+        grad_likelihood[index_obs] = - (success_cnt * (1. - p) - (total_cnt - success_cnt) * p) / total_number
+        grad_likelihood[-1] = np.sum(grad_likelihood)
 
         gradient_val = (1. - discount) * grad_prior + grad_likelihood
         return gradient_val

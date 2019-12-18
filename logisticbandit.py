@@ -26,13 +26,13 @@ class LogisticBandit(object):
 
         # transform_mat1: to new odds ratio    
         transform_mat1 = np.zeros((len(action_list), len(self.action_list)))
-        transform_mat1[:, self.action_list.index(action_ref)] = -1
+        transform_mat1[:, self.action_list.index(action_ref)]=-1
         for i, new_nonref in enumerate(action_nonref):
             for j, old_nonref in enumerate(self.action_list):
                 if new_nonref == old_nonref:
-                    transform_mat1[i,j] = 1
+                    transform_mat1[i,j]=1
 
-        transform_mat1[-1, self.action_list.index(action_ref)] = 1
+        transform_mat1[-1, self.action_list.index(action_ref)]=1
         
         # transform_mat2: inverse from old odds ratios
         transform_mat2 = np.zeros((len(self.action_list), len(self.action_list)))
@@ -54,7 +54,7 @@ class LogisticBandit(object):
             mu = mu, sigma_inv = sigma_inv, action_list = action_list)
 
     def update(
-        self, obs, alpha_0 = 1., max_iter = 1000,
+        self, obs, alpha_0 = .01, max_iter = 1000,
         odds_ratios_only = True, remove_not_observed = False,
         discount = .0):
 
@@ -62,13 +62,13 @@ class LogisticBandit(object):
 
         if len(obs_valid) > 0:
 
-            total_number = 0.
+            total_number=0.
             for value in obs_valid.values():
                 total_number += value[0]
 
             # find arrangement
-            action_on = []
-            action_newcome = []
+            action_on=[]
+            action_newcome=[]
 
             for action_obs in obs_valid.keys():
                 if action_obs in self.get_models():                
@@ -79,7 +79,6 @@ class LogisticBandit(object):
             action_nonobserved = [x for x in self.get_models() if x not in obs_valid.keys()]
             action_list = action_newcome + action_nonobserved + action_on
 
-            print(action_nonobserved)
             prior = self.get_par(action_nonobserved + action_on)
             if (prior[0] is not None) and odds_ratios_only:
                 if len(prior[0]) > 1:
