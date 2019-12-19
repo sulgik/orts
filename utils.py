@@ -3,7 +3,7 @@ from numpy import clip
 from scipy.optimize import minimize
 
 
-def estimate(prior, obs, indexes, alpha_0, max_iter, discount = 0.):
+def estimate(prior, obs, indexes, discount = 0.):
     #
     # estimate mu and using this estimate sigma inverse
     #
@@ -14,14 +14,13 @@ def estimate(prior, obs, indexes, alpha_0, max_iter, discount = 0.):
 
     ww = minimize(target_fn, initial_mu, jac = gradient_fn, method = 'Newton-CG')
     mu_hat = ww.x
-    # mu_hat = _estimate_mu(
-    #     target_fn, gradient_fn, initial = initial_mu, alpha_0 = alpha_0, max_iter = max_iter)
 
     # sigma_inv
     sigma_inv = \
         _estimate_sigma_inv(mu_hat, prior, obs, indexes, discount)
         
     return mu_hat, sigma_inv
+
 
 def _compute_initial(prior, obs, indexes):
     index_obs = \
@@ -45,33 +44,18 @@ def _compute_initial(prior, obs, indexes):
 
 
 def logistic(x):
+    # set a truncation exponent.
+    trunc = 9.  # exp(8)/(1+exp(8)) = 0.9997 which is close enough to 1 as to not matter in most cases.
+    x = np.clip(x, -trunc, trunc)
+
     if x > 0:
         return 1. / (1. + np.exp(-x))
     else:
         return np.exp(x) / (1. + np.exp(x))
 
+
 def is_pos_semidef(x):
     return np.all(np.linalg.eigvals(x) >= 0)
-
-
-def _estimate_mu(target_fn, gradient_fn, initial, alpha_0, max_iter):
-    w = initial
-    min_w, min_value = None, float("Inf")
-    alpha = alpha_0
-
-    iters = 0
-#    while previous_step_size > .00001 and iters < max_iter:
-    while iters < max_iter:
-        value = target_fn(w)
-        if value < min_value:
-            min_w, min_value = w, value
-            alpha = alpha_0
-        else:
-            alpha *= .9
-        gradient = gradient_fn(w)
-        w -= alpha * gradient
-        iters += 1
-    return min_w
 
 
 def _estimate_sigma_inv(mu_hat, prior, obs, indexes, discount):

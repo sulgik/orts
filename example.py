@@ -1,6 +1,8 @@
-from logisticbandit import LogisticBandit
 import numpy as np
+
+from logisticbandit import LogisticBandit
 from numpy.linalg import inv
+
 
 # construct an experiment
 orpar = LogisticBandit()

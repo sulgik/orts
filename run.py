@@ -2,64 +2,152 @@
 # unit test
 ########
 from logisticbandit import LogisticBandit, is_pos_semidef
-from simulate import simulate, add_noise, simulate_obs
+from simulate import simulate_constant, simulate, simulate_one, add_noise, simulate_obs
 import numpy as np
 from numpy.linalg import pinv, inv
 from ts import TSPar
-
+import numpy.random
 
 ############################
 # using simulate function
 ############################
+BASE_P = .5
+p_list = {"arm_"+str(i): BASE_P for i in range(10)}
+p_list["arm_9"] +=.01
 
-p_list = np.append([.2, .21, .2, .2, .2], [.2] * 5)
 N = 10000
-n_rep = 20
-TIMESTEP = 30
+n_rep = 200
+NOISE = 0.
+
+regret_fu = []
+obs_rep = []
+seed = []
+
+for i in range(n_rep):
+    try:
+        k = np.random.randint(1, 1000)
+        seed.append(k)
+        np.random.seed(k)
+        out = simulate_constant(
+            p_list, "logistic_or", N = N)
+    
+    except:
+        print("random seed:", k)
+
+    print(i+1, "/", n_rep)
+
+    regret_fu.append(out[0])
+    obs_rep.append(out[1])
+
+temp = np.asarray(regret_fu)
+np.savetxt("simul/OR_constant.txt", temp)
+
+
+temp.mean(axis = 1)
 
 
 
-######
-noise = .1
-p_track = []
-for _ in range(TIMESTEP):
-    p_track.append(add_noise(np.array([.2, .21]), noise = noise))
- 
-p_track = np.array(p_track)
-np.savetxt('p_track', p_track)
-########
-# out = simulate(
-#           p_list, MAX_TIMESTEP = TIMESTEP, noise = 0.5, N = N)
-
+############
 
 
 regret_or = []
 regret_fu = []
 regret_ts = []
 
+
 for i in range(n_rep):
-    out = simulate(
-        p_list, MAX_TIMESTEP = TIMESTEP, noise = 0, N = N)
-    print(i+1, "/", n_rep)
-    regret_or.append(out[0])
-    regret_fu.append(out[1])
-    regret_ts.append(out[2])
+    try:
+        k = np.random.randint(1, 10000)
+        np.random.seed(k)
+
+        out = simulate(
+            p_list, MAX_TIMESTEP = TIMESTEP, noise = NOISE, N = N)
+        print(i+1, "/", n_rep)
+        regret_or.append(out[0])
+        regret_fu.append(out[1])
+        regret_ts.append(out[2])
+    except:
+        print("random seed:", k)
+        break
 
 
 regretOR = np.asarray(regret_or)
 regretFU = np.asarray(regret_fu)
 regretTS = np.asarray(regret_ts)
 
-np.savetxt("simul/0_OR.txt", regretOR)
-np.savetxt("simul/0_FU.txt", regretFU)
-np.savetxt("simul/0_TS.txt", regretTS)
+np.savetxt("simul/0_5_OR2.txt", regretOR)
+np.savetxt("simul/0_5_FU2.txt", regretFU)
+np.savetxt("simul/0_5_TS2.txt", regretTS)
 
 
 regretOR.mean(axis = 0)
 regretFU.mean(axis = 0)
 regretTS.mean(axis = 0)
 
+regretOR.median(axis = 0)
+regretFU.median(axis = 0)
+regretTS.median(axis = 0)
 
+
+###############
+
+regret_fu = []
+obs_rep = []
+seed = []
+
+for i in range(n_rep):
+    try:
+        k = np.random.randint(1, 1000)
+        seed.append(k)
+        np.random.seed(k)
+        out = simulate_one(
+            p_list, MAX_TIMESTEP = TIMESTEP, noise = NOISE, N = N)
+    
+    except:
+        print("random seed:", k)
+
+    print(i+1, "/", n_rep)
+    regret_fu.append(out[0])
+    obs_rep.append(out[1])
+
+
+temp = np.asarray(regret_fu)
+temp.mean(axis = 1)
+
+
+
+######
+np.random.seed(732)
+out = simulate_one(p_list, MAX_TIMESTEP = TIMESTEP, noise = NOISE, N = N)
+out[0]
+out[1]
+
+
+########
+obs_list = obs_rep[17]  # 30
+fullpar = LogisticBandit()
+
+t = -1
+
+# 23
+while t < 23:
+    t += 1
+    # i
+    # obs_list[i]
+    obs = out[1][t]
+    print(obs)
+    fullpar.update(obs, odds_ratios_only = False)
+    fullpar.win_prop()
+
+fullpar.mu
+# fullpar.sigma_inv
+
+obs = out[1][24]
+obs
+fullpar.update(obs, odds_ratios_only = False)
+fullpar.mu
+
+fullpar.win_prop()
 
 
 ##################

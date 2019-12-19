@@ -1,7 +1,9 @@
 import numpy as np
 from numpy import fill_diagonal
 from numpy.linalg import pinv, inv
+
 from utils import estimate, is_pos_semidef
+
 
 class LogisticBandit(object):
     def __init__(self, mu=None, sigma_inv=None, action_list=None):
@@ -9,7 +11,7 @@ class LogisticBandit(object):
         self._initialize(mu, sigma_inv, action_list)
 
     def _initialize(self, mu, sigma_inv, action_list):
-        self.mu = np.copy(mu) if mu is not None else np.array([])
+        self.mu = np.copy(mu) if mu igis not None else np.array([])
         self.sigma_inv = np.copy(sigma_inv) if sigma_inv is not None else np.empty((0, 0))
         self.action_list = action_list.copy() if action_list is not None else []
 
@@ -54,8 +56,7 @@ class LogisticBandit(object):
             mu = mu, sigma_inv = sigma_inv, action_list = action_list)
 
     def update(
-        self, obs, alpha_0 = .01, max_iter = 1000,
-        odds_ratios_only = True, remove_not_observed = False,
+        self, obs, odds_ratios_only = True, remove_not_observed = False,
         discount = .0):
 
         obs_valid = {i:obs[i] for i in obs.keys() if obs[i][0] > 0}
@@ -92,11 +93,11 @@ class LogisticBandit(object):
             # estimate part    
             if len(action_on) <= 1:
                 parameters = \
-                    estimate(prior, obs_list, index, alpha_0 = alpha_0, max_iter = max_iter, discount = discount)
+                    estimate(prior, obs_list, index, discount = discount)
             
             else:
                 parameters = \
-                    estimate(prior, obs_list, index, alpha_0 = alpha_0, max_iter = max_iter, discount = discount)
+                    estimate(prior, obs_list, index, discount = discount)
                 
             self.mu = parameters[0]
             self.sigma_inv = parameters[1]
