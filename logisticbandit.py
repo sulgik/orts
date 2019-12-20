@@ -11,7 +11,7 @@ class LogisticBandit(object):
         self._initialize(mu, sigma_inv, action_list)
 
     def _initialize(self, mu, sigma_inv, action_list):
-        self.mu = np.copy(mu) if mu igis not None else np.array([])
+        self.mu = np.copy(mu) if mu is not None else np.array([])
         self.sigma_inv = np.copy(sigma_inv) if sigma_inv is not None else np.empty((0, 0))
         self.action_list = action_list.copy() if action_list is not None else []
 

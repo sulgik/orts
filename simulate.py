@@ -6,58 +6,7 @@ from utils import logistic
 from ts import TSPar
 
 
-def simulate_one(p_list, MAX_TIMESTEP, noise = 0., N = 100):
-    
-    # np.random.seed(random_seed)
-
-    fullpar = LogisticBandit()
-    
-    full_track = []
-
-    n_ts = (float(N) * np.repeat(1.0 / 10.0, 10)).astype(int)
-
-    p_noise = add_noise(p = p_list, noise = noise)
-
-    model_ids = ["model_" + str(num) for num in range(10)]
-
-    np_dict = {model: [n_ts[i], p_noise[i]] for i, model in enumerate(model_ids)} 
-    obs_ts = simulate_obs(np_dict)
-    obs_track = [obs_ts]
-
-
-    fullpar.update(obs_ts, odds_ratios_only = False)
-
-    for i in range(MAX_TIMESTEP):
-        # p_orts = ortspar.win_prop()
-        p_full = fullpar.win_prop()
-        # p_ts   = tspar.win_prop()
-
-        p_noise_ = add_noise(p = np.array(p_list), noise = noise)
-        p_noise = {action: p_noise_[i] for i, action in enumerate(model_ids)}
-
-        np_full = {action: [np.round(N * np.array(p_full[action])), p_noise[action]]\
-            for action in fullpar.get_models()}
-
-        # regret
-        # orts_track.append((1. - p_orts["model_1"]) * (p_noise["model_1"] - p_noise["model_0"]) * N)
-        full_track.append((1. - p_full["model_9"]) * (p_noise["model_9"] - p_noise["model_0"]) * N)
-        # ts_track.append(  (1. - p_ts["model_1"]) * (p_noise["model_1"] - p_noise["model_0"]) * N)
-
-        # obs1 = simulate_obs(np_orts)
-        obs2 = simulate_obs(np_full)
-        obs_track.append(obs2)
-
-        # obs3 = simulate_obs(np_ts)
-
-#        ts_track.append(N * max(p_noise.values()) - np.sum([obs1[action][1] for action in obs1.keys()]))
-#        orts2_track.append(N * max(p_noise.values()) - np.sum([obs3[action][1] for action in obs3.keys()]))
-
-        # temp = fullpar.action_list, fullpar.mu, fullpar.sigma_inv
-        fullpar.update(obs2, odds_ratios_only = False)
-
-    return full_track, obs_track
-
-TIMESTEP = 50
+TIMESTEP = 100
 def simulate_constant(p_list, method, obs_list = [], N=100):
     
     # np.random.seed(random_seed)
@@ -191,6 +140,57 @@ def simulate(p_list, MAX_TIMESTEP, noise = 0.0, N = 100):
 #     p_list[0] += epsilon
 #     return add_noise(p_list, noise)
 
+
+def simulate_one(p_list, MAX_TIMESTEP, noise = 0., N = 100):
+    
+    # np.random.seed(random_seed)
+
+    fullpar = LogisticBandit()
+    
+    full_track = []
+
+    n_ts = (float(N) * np.repeat(1.0 / 10.0, 10)).astype(int)
+
+    p_noise = add_noise(p = p_list, noise = noise)
+
+    model_ids = ["model_" + str(num) for num in range(10)]
+
+    np_dict = {model: [n_ts[i], p_noise[i]] for i, model in enumerate(model_ids)} 
+    obs_ts = simulate_obs(np_dict)
+    obs_track = [obs_ts]
+
+
+    fullpar.update(obs_ts, odds_ratios_only = False)
+
+    for i in range(MAX_TIMESTEP):
+        # p_orts = ortspar.win_prop()
+        p_full = fullpar.win_prop()
+        # p_ts   = tspar.win_prop()
+
+        p_noise_ = add_noise(p = np.array(p_list), noise = noise)
+        p_noise = {action: p_noise_[i] for i, action in enumerate(model_ids)}
+
+        np_full = {action: [np.round(N * np.array(p_full[action])), p_noise[action]]\
+            for action in fullpar.get_models()}
+
+        # regret
+        # orts_track.append((1. - p_orts["model_1"]) * (p_noise["model_1"] - p_noise["model_0"]) * N)
+        full_track.append((1. - p_full["model_9"]) * (p_noise["model_9"] - p_noise["model_0"]) * N)
+        # ts_track.append(  (1. - p_ts["model_1"]) * (p_noise["model_1"] - p_noise["model_0"]) * N)
+
+        # obs1 = simulate_obs(np_orts)
+        obs2 = simulate_obs(np_full)
+        obs_track.append(obs2)
+
+        # obs3 = simulate_obs(np_ts)
+
+#        ts_track.append(N * max(p_noise.values()) - np.sum([obs1[action][1] for action in obs1.keys()]))
+#        orts2_track.append(N * max(p_noise.values()) - np.sum([obs3[action][1] for action in obs3.keys()]))
+
+        # temp = fullpar.action_list, fullpar.mu, fullpar.sigma_inv
+        fullpar.update(obs2, odds_ratios_only = False)
+
+    return full_track, obs_track
 
 def add_noise(p, noise):
     if noise == 0:
