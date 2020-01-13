@@ -103,7 +103,7 @@ class LogisticBandit(object):
             self.sigma_inv = parameters[1]
             self.action_list = action_list
 
-    def win_prop(self, aggressive = 1., draw = 100000):
+    def win_prop(self, draw = 100000, aggressive = 1.):
 
         if len(self.action_list) == 0:
             return {}
