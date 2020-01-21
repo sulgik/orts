@@ -57,7 +57,7 @@ class LogisticBandit(object):
 
     def update(
         self, obs, odds_ratios_only = True, remove_not_observed = False,
-        discount = .0):
+        decay = .0):
 
         obs_valid = {i:obs[i] for i in obs.keys() if obs[i][0] > 0}
 
@@ -93,27 +93,29 @@ class LogisticBandit(object):
             # estimate part    
             if len(action_on) <= 1:
                 parameters = \
-                    estimate(prior, obs_list, index, discount = discount)
+                    estimate(prior, obs_list, index, discount = decay)
             
             else:
                 parameters = \
-                    estimate(prior, obs_list, index, discount = discount)
+                    estimate(prior, obs_list, index, discount = decay)
                 
             self.mu = parameters[0]
             self.sigma_inv = parameters[1]
             self.action_list = action_list
 
-    def win_prop(self, draw = 100000, aggressive = 1.):
+    def win_prop(self, action_list = None, draw = 100000, aggressive = 1.):
+
+        if action_list is None: 
+            action_list = self.action_list
 
         if len(self.action_list) == 0:
             return {}
         elif len(self.action_list) == 1:
             return {self.action_list[0]: 1.}
 
-        action_list = self.action_list
+        mu, sigma_inv = self.get_par(action_list)
         
-        mu = self.mu
-        sigma = pinv(self.sigma_inv)
+        sigma = pinv(sigma_inv)
         
         # Generation depending on dimension
         if len(sigma) == 1:
