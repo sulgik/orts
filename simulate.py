@@ -6,11 +6,49 @@ from utils import logistic
 from ts import TSPar
 
 
-TIMESTEP = 100
+TIMESTEP = 50
+def simulate_noise(p_list_seq, method, N=100):
+    
+    if method in ["logistic_full", "logistic_or"]:
+        fullpar = LogisticBandit()
+    else:
+        fullpar = TSPar()
+
+    full_track = []
+    obs_track = []
+
+    prop = {key: 1./len(p_list_seq[0]) for key in p_list_seq[0].keys()}
+
+    for p_list in p_list_seq:
+        
+        # generate data
+
+        np_dict = {action: [np.round(N * np.array(prop[action])), p_list[action]] for action in p_list.keys()}
+        obs_ts = simulate_obs(np_dict)
+
+        obs_track.append(obs_ts)
+
+        if method == "logistic_full": 
+            fullpar.update(obs_ts, odds_ratios_only = False)
+        elif method is not "logistic_full":
+            fullpar.update(obs_ts)
+
+        prop = fullpar.win_prop()
+
+        # regret
+        max_p = max(p_list.values())
+        regret = 0.
+        for action, p in p_list.items():
+            if p < max_p:
+                regret += np_dict[action][0]
+
+        full_track.append(regret)
+
+    return full_track, obs_track
+
+
 def simulate_constant(p_list, method, obs_list = [], N=100):
     
-    # np.random.seed(random_seed)
-
     if method in ["logistic_full", "logistic_or"]:
         fullpar = LogisticBandit()
     else:
@@ -192,13 +230,20 @@ def simulate_one(p_list, MAX_TIMESTEP, noise = 0., N = 100):
 
     return full_track, obs_track
 
-def add_noise(p, noise):
+
+
+def add_noise(p_dict, noise):
     if noise == 0:
-        return np.array(p)
+        return p_dict
     else:
-        base_w = np.log(p / (1.0 - p))
-        random_w = noise * np.random.uniform(-1.0, 1.0)
-        return np.array([logistic(w) for w in base_w + random_w])
+        out = {}
+        random_w = noise * np.random.normal(0.0, 1.0)
+        for key in p_dict.keys():
+            p = p_dict[key]
+            base_w = np.log(p / (1.0 - p))
+            out[key] = logistic(base_w + random_w)
+        
+        return out
 
 def simulate_obs(np_dict):
     out_dict = {}

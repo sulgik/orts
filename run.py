@@ -1,49 +1,212 @@
 #########
 # unit test
 ########
-from logisticbandit import LogisticBandit, is_pos_semidef
-from simulate import simulate_constant, simulate, simulate_one, add_noise, simulate_obs
 import numpy as np
-from numpy.linalg import pinv, inv
-from ts import TSPar
 import numpy.random
+from tqdm import tqdm
+from numpy.linalg import pinv, inv
+
+from logisticbandit import LogisticBandit, is_pos_semidef
+from utils import logistic
+from simulate import add_noise, simulate_constant, simulate_noise, simulate
+
+
+## simulate_noise test
+
+BASE_P = .3
+num_arm = 10
+N = 10000
+n_rep = 100
+
+p_list = {"arm_"+str(i): BASE_P for i in range(num_arm)}
+p_list["arm_0"] = BASE_P + .01
+
+delta = logistic(p_list["arm_0"]) - logistic(p_list["arm_1"])
+
+
+noise_seq = np.repeat(delta * np.array([10., 20, 30, 40, 50, 60, 70, 80, 90, 100]), n_rep)
+
+
+
+TIMESTEP = 50
+
+regret_or = []
+regret_fu = []
+regret_be = []
+
+for NOISE in tqdm(noise_seq):
+    p_noise_seq = [add_noise(p_list, noise = NOISE) for _ in range(TIMESTEP)]
+    
+    try:
+        k = np.random.randint(1, 1000)
+        np.random.seed(k)
+
+        out_or = simulate_noise(
+            p_noise_seq, "logistic_or", N = N)
+        out_fu = simulate_noise(
+            p_noise_seq, "logistic_full", N = N)
+        out_be = simulate_noise(
+            p_noise_seq, "beta", N = N)
+
+    except:
+        print("random seed:", k)
+
+    regret_or.append(out_or[0])
+    regret_fu.append(out_fu[0])
+    regret_be.append(out_be[0])
+
+
+
+np.savetxt("simul/OR3_10_100.txt", np.asarray(regret_or))
+np.savetxt("simul/FU3_10_100.txt", np.asarray(regret_fu))
+np.savetxt("simul/TS3_10_100.txt", np.asarray(regret_be))
+
+
+
+
+################
+
+
+
+NOISE = .05
+
+regret_or = []
+regret_fu = []
+regret_be = []
+
+
+TIMESTEP = 50
+
+for i in tqdm(range(n_rep)):
+    
+    p_noise_seq = [add_noise(p_list, noise = NOISE) for _ in range(TIMESTEP)]
+    
+    try:
+        k = np.random.randint(1, 1000)
+        np.random.seed(k)
+
+        out_or = simulate_noise(
+            p_noise_seq, "logistic_or", N = N)
+        out_fu = simulate_noise(
+            p_noise_seq, "logistic_full", N = N)
+        out_be = simulate_noise(
+            p_noise_seq, "beta", N = N)
+
+    except:
+        print("random seed:", k)
+
+    regret_or.append(out_or[0])
+    regret_fu.append(out_fu[0])
+    regret_be.append(out_be[0])
+
+
+np.asarray(regret_or)
+
+np.asarray(regret_fu)
+
+np.asarray(regret_be)
+
+#### 
+
+
+
+
+#########
+# or reference/baseline test
+#########
+
+obs_1 = {"action_1":[100, 30], "action_2":[100, 25], "action_3":[100, 20]}
+obs_2 = {"action_3":[100, 30], "action_2":[100, 25], "action_1":[100, 20]}
+obs_3_1 = {"action_1":[100,  20], "action_2":[100, 30], "action_3":[100, 25]}
+obs_3_2 = {"action_1":[100,  20], "action_2":[100, 25], "action_3":[100, 25]}
+
+l1 = LogisticBandit()
+l1.update(obs_1)
+l1.update(obs_1)
+l1.mu
+l1.sigma_inv
+
+l2 = LogisticBandit()
+l2.update(obs_2)
+l2.update(obs_2)
+l2.mu
+l2.sigma_inv
+
+l1.win_prop()
+l2.win_prop()
+
+
+
+
+
 
 ############################
 # using simulate function
 ############################
+
 BASE_P = .5
-p_list = {"arm_"+str(i): BASE_P for i in range(10)}
-p_list["arm_9"] +=.01
+num_arm = 10
 
 N = 10000
-n_rep = 200
+n_rep = 50
 NOISE = 0.
 
-regret_fu = []
-obs_rep = []
+
 seed = []
 
-for i in range(n_rep):
-    try:
-        k = np.random.randint(1, 1000)
-        seed.append(k)
-        np.random.seed(k)
-        out = simulate_constant(
-            p_list, "logistic_or", N = N)
-    
-    except:
-        print("random seed:", k)
 
-    print(i+1, "/", n_rep)
+p_list = {"arm_"+str(i): BASE_P for i in range(num_arm)}
+p_list["arm_0"] = BASE_P + .01
 
-    regret_fu.append(out[0])
-    obs_rep.append(out[1])
+
+
+reg_or = []
+reg_fu = []
+reg_be = []
+
+for j in tqrn(range(n_rep2)):
+    regret_or = []
+    regret_fu = []
+    regret_be = []
+
+    for i in range(n_rep):
+        try:
+            k = np.random.randint(1, 1000)
+            seed.append(k)
+            np.random.seed(k)
+            out_or = simulate_constant(
+                p_list, "logistic_or", obs_list = [], N = N)
+            out_fu = simulate_constant(
+                p_list, "logistic_full", obs_list = [], N = N)
+            out_be = simulate_constant(
+                p_list, "beta", obs_list = [], N = N)
+
+        except:
+            print("random seed:", k)
+
+        regret_or.append(out_or[0][-1])
+        regret_fu.append(out_fu[0][-1])
+        regret_be.append(out_be[0][-1])
+
+
+
+regretOR = np.asarray(regret_or)
+regretFU = np.asarray(regret_fu)
+regretTS = np.asarray(regret_be)
+
+np.savetxt("simul/0_1_ORn.txt", regretOR)
+np.savetxt("simul/0_1_FUn.txt", regretFU)
+np.savetxt("simul/0_1_TSn.txt", regretTS)
+
+
+
+
 
 temp = np.asarray(regret_fu)
 np.savetxt("simul/OR_constant.txt", temp)
 
 
-temp.mean(axis = 1)
+
 
 
 
@@ -60,8 +223,8 @@ for i in range(n_rep):
         k = np.random.randint(1, 10000)
         np.random.seed(k)
 
-        out = simulate(
-            p_list, MAX_TIMESTEP = TIMESTEP, noise = NOISE, N = N)
+        out = simulate_constant(
+            p_list, TIMESTEP = TIMESTEP, N = N)
         print(i+1, "/", n_rep)
         regret_or.append(out[0])
         regret_fu.append(out[1])
@@ -1067,5 +1230,6 @@ def simulate_ts(MAX_TIMESTEP, rate):
         
         i += 1
     return ts_track
+
 
 
