@@ -3,7 +3,7 @@
 ```
 from logisticbandit import LogisticBandit 
 
-# default parameter, odds_ratos_only = True, discount = .2
+# argument default: odds_ratos_only = True, discount = .0
 
 orpar = LogisticBandit()
 
