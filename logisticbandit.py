@@ -108,46 +108,62 @@ class LogisticBandit(object):
         if action_list is None: 
             action_list = self.action_list
 
-        if len(self.action_list) == 0:
+        if len(action_list) == 0:
             return {}
-        elif len(self.action_list) == 1:
-            return {self.action_list[0]: 1.}
+        elif len(action_list) == 1:
+            return {action_list[0]: 1.}
 
-        mu, sigma_inv = self.get_par(action_list)
+        # split query
+        action_list_observed   = list()
+        action_list_unobserved = list()
+
+        for x in action_list:
+            if x in self.action_list:
+                action_list_observed.append(x)
+            else:
+                action_list_unobserved.append(x)
+
+        n_observed   = len(action_list_observed  )
+        n_unobserved = len(action_list_unobserved)
+
+        out = dict()
+        if n_observed == 1:
+            out[action_list_observed[0]] = 1. /(1 + n_unobserved)
+        elif n_observed > 1:
+            mu, sigma_inv = self.get_par(action_list_observed)
+            
+            sigma = pinv(sigma_inv)
+            
+            if len(sigma) == 2:
+                mc = np.random.normal(mu[0], np.sqrt(sigma[0,0]), draw)
+                mc = mc.reshape(draw,1)
+            else:
+                while not is_pos_semidef(sigma[:-1,:-1]):
+                    # critical case
+                    print("Warning: not positive semidefinite")
+                    exit() # should be removed
+                    np.fill_diagonal(sigma, sigma.diagonal() + .001)
+
+                mc = np.random.multivariate_normal(mu[:-1], sigma[:-1,:-1], draw)
+
+            # concatenate
+            mc = np.concatenate((mc, np.zeros([draw, 1])), axis = 1)
+
+            # count frequency of each arm being winner 
+            counts = [0 for _ in range(len(mu))]
+            winner_idxs = np.asarray(mc.argmax(axis = 1)).reshape(draw, )
+            for idx in winner_idxs:
+                counts[idx] += 1
+            
+            # divide by draw to approximate probability distribution
+            count_gamma = np.array([count ** aggressive for count in counts])
+            p_winner = count_gamma / np.sum(count_gamma)
+
+            for i, action in enumerate(action_list_observed):
+                out[action] = p_winner[i] * n_observed / (n_observed + n_unobserved)
         
-        sigma = pinv(sigma_inv)
-        
-        # Generation depending on dimension
-        if len(sigma) == 1:
-            mc = np.random.normal(mu[0], np.sqrt(sigma[0]), draw)
-            mc = mc.reshape(draw,1)
-        elif len(sigma) == 2:
-            mc = np.random.normal(mu[0], np.sqrt(sigma[0,0]), draw)
-            mc = mc.reshape(draw,1)
-        else:
-            while not is_pos_semidef(sigma[:-1,:-1]):
-                # critical case
-                print("Warning: not positive semidefinite")
-                exit() # should be removed
-                np.fill_diagonal(sigma, sigma.diagonal() + .001)
-
-            mc = np.random.multivariate_normal(mu[:-1], sigma[:-1,:-1], draw)
-
-        # concatenate
-        mc = np.concatenate((mc, np.zeros([draw, 1])), axis = 1)
-
-        # count frequency of each arm being winner 
-        counts = [0.0 for _ in range(len(mu))]
-        winner_idxs = np.asarray(mc.argmax(axis = 1)).reshape(draw, )
-        for idx in winner_idxs:
-            counts[idx] += 1.
-        
-        # divide by draw to approximate probability distribution
-        count_gamma = np.array([count**aggressive for count in counts])
-        p_winner = count_gamma / np.sum(count_gamma)
-
-        out = {}
-        for i, action in enumerate(action_list):
-            out[action] = p_winner[i]
+        # non-observed
+        for _, action in enumerate(action_list_unobserved):
+            out[action] = 1. / (n_observed + n_unobserved)
 
         return out
