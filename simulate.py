@@ -40,7 +40,7 @@ def simulate_noise(p_list_seq, method, N=100):
         regret = 0.
         for action, p in p_list.items():
             if p < max_p:
-                regret += np_dict[action][0]
+                regret += np_dict[action][0] * (max_p - p)
 
         full_track.append(regret)
 
