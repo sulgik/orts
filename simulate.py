@@ -1,5 +1,6 @@
 import numpy as np
 import numpy.random 
+import pandas as pd
 
 from logisticbandit import LogisticBandit
 from utils import logistic
@@ -8,6 +9,7 @@ from ts import TSPar
 
 TIMESTEP = 50
 def simulate_noise(p_list_seq, method, N=100):
+    # p_list_seq: 
     
     if method in ["logistic_full", "logistic_or"]:
         fullpar = LogisticBandit()
@@ -17,12 +19,12 @@ def simulate_noise(p_list_seq, method, N=100):
     full_track = []
     obs_track = []
 
-    prop = {key: 1./len(p_list_seq[0]) for key in p_list_seq[0].keys()}
 
     for p_list in p_list_seq:
-        
-        # generate data
 
+        prop = fullpar.win_prop(list(p_list.keys()))
+
+        # generate data
         np_dict = {action: [np.round(N * np.array(prop[action])), p_list[action]] for action in p_list.keys()}
         obs_ts = simulate_obs(np_dict)
 
@@ -32,8 +34,6 @@ def simulate_noise(p_list_seq, method, N=100):
             fullpar.update(obs_ts, odds_ratios_only = False)
         elif method is not "logistic_full":
             fullpar.update(obs_ts)
-
-        prop = fullpar.win_prop()
 
         # regret
         max_p = max(p_list.values())
@@ -232,18 +232,25 @@ def simulate_one(p_list, MAX_TIMESTEP, noise = 0., N = 100):
 
 
 
-def add_noise(p_dict, noise):
-    if noise == 0:
-        return p_dict
-    else:
-        out = {}
+def add_noise(p_dict, noise, common=True):
+
+    out = {}
+
+    if common:
         random_w = noise * np.random.normal(0.0, 1.0)
         for key in p_dict.keys():
             p = p_dict[key]
             base_w = np.log(p / (1.0 - p))
             out[key] = logistic(base_w + random_w)
-        
-        return out
+    else:
+        for key in p_dict.keys():
+            p = p_dict[key]
+            base_w = np.log(p / (1.0 - p))
+            random_w = noise * np.random.normal(0.0, 1.0)
+            out[key] = logistic(base_w + random_w)
+
+    return out
+
 
 def simulate_obs(np_dict):
     out_dict = {}
@@ -255,3 +262,64 @@ def simulate_obs(np_dict):
         out_dict[action] = [n, np.random.binomial(n, p)]
         
     return out_dict
+
+
+
+def counterfactual(data, object, fullrank = False, decay = 0, aggressive = 1):
+    # data is pandas dataframe: date, group, ctr, view_count
+
+    regret_list = []
+    ctr_total_list = []
+    click_list = []
+    arms_list = list(data.iloc[:,1].unique())
+    prop_list = pd.DataFrame(columns = arms_list + ['round'])
+
+    round_series = data.iloc[:,0].unique()
+    for i, cur in enumerate(round_series):
+    
+        data_one = data.loc[data.iloc[:,0] == cur]
+        N = sum(data_one.iloc[:,3])
+
+        prop_dict = get_proportion(i, data_one, N, arms_list, object) # as value
+
+        obs_sim = {}
+        pv_sum = 0
+        click_sum = 0
+        max_ctr = 0.
+        for k, v in prop_dict.items():
+            ctr = data_one[data_one.iloc[:,1] == k].iloc[0,2]
+            max_ctr = max(max_ctr, ctr)
+            click = int(v * ctr)
+            obs_sim[k] = v, click
+            pv_sum += v
+            click_sum += click
+
+        prop_dict['round'] = cur
+        prop_list = prop_list.append(prop_dict, ignore_index=True)
+
+        regret = int(pv_sum * max_ctr) - click_sum
+        regret_list.append(regret)
+        ctr_total = click_sum / pv_sum
+        ctr_total_list.append(ctr_total)
+        click_list.append(click_sum)
+
+        if fullrank:
+            object.update(obs_sim, decay = decay, odds_ratios_only=False)
+        else:
+            object.update(obs_sim, decay = decay)
+
+    return click_list, prop_list, regret_list, ctr_total_list
+
+
+def get_proportion(i, data_one, N, arms_list, object):
+
+    if i == 0:
+        pv_dict = dict()
+        for group_id in arms_list:
+            props = 1./len(arms_list)
+            pv_dict[group_id] = int(N*props)
+
+    else:
+        pv_dict = {k: int(v * N) for k, v in object.win_prop().items()}
+ 
+    return pv_dict
