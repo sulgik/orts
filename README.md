@@ -14,7 +14,7 @@ orpar = LogisticBandit()
 
 # first update
 
-obs = {"model_1": [30000, 300], "model_2": [30000, 290]}
+obs = {"arm_1": [30000, 300], "arm_2": [30000, 290]}
 orpar.update(obs)
 
 orpar.get_models()
