@@ -19,7 +19,6 @@ class LogisticBandit(object):
         return self.action_list
 
     def get_par(self, action_list=None):
-
         if not action_list:
             return None, None
 
@@ -91,20 +90,13 @@ class LogisticBandit(object):
             index = [len(action_newcome), len(action_newcome + action_nonobserved), len(action_list)]
 
             # estimate part    
-            if len(action_on) <= 1:
-                parameters = \
-                    estimate(prior, obs_list, index, discount = decay)
-            
-            else:
-                parameters = \
-                    estimate(prior, obs_list, index, discount = decay)
-                
+            parameters = estimate(prior, obs_list, index, discount = decay)
+                            
             self.mu = parameters[0]
             self.sigma_inv = parameters[1]
             self.action_list = action_list
 
     def win_prop(self, action_list = None, draw = 100000, aggressive = 1.):
-
         if action_list is None: 
             action_list = self.action_list
 
