@@ -137,7 +137,7 @@ def run_seq(p_list_seq, method="logistic_or", N=100):
 
 def run_seq_logistic(p_list_seq, N=100):
 
-    out = map(lambda x: run_seq(p_list_seq=p_list_seq, method=x, N=100),
+    out = map(lambda x: run_seq(p_list_seq=p_list_seq, method=x, N=N),
         ["logistic_or", "logistic_full"])
 
     return(out)
