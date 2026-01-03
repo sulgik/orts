@@ -4,6 +4,11 @@ A/B Testing with Thompson Sampling.
 Realistic A/B testing scenario using ORTS for dynamic traffic allocation.
 """
 
+import sys
+import os
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import numpy as np
 from logisticbandit import LogisticBandit
 

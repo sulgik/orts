@@ -5,6 +5,11 @@ This example demonstrates the differences between the three methods
 and when to use each one.
 """
 
+import sys
+import os
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import numpy as np
 from logisticbandit import LogisticBandit
 from ts import TSPar
