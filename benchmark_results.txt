@@ -1,0 +1,187 @@
+======================================================================
+PERFORMANCE BENCHMARK - Multi-Armed Bandit Algorithms
+======================================================================
+
+======================================================================
+LogisticBandit Benchmark
+======================================================================
+
+Small (2 arms, 1K obs):
+----------------------------------------------------------------------
+  update():       2.95 ms
+  win_prop():     2.18 ms (draw=10,000)
+  Total:          5.13 ms
+
+Medium (5 arms, 10K obs):
+----------------------------------------------------------------------
+  update():       3.61 ms
+  win_prop():    14.74 ms (draw=50,000)
+  Total:         18.35 ms
+
+Large (10 arms, 100K obs):
+----------------------------------------------------------------------
+  update():       5.90 ms
+  win_prop():    54.98 ms (draw=100,000)
+  Total:         60.88 ms
+
+======================================================================
+LinearBandit Benchmark
+======================================================================
+
+Small (2 arms, 100 obs):
+----------------------------------------------------------------------
+  update():       0.15 ms
+  win_prop():     4.43 ms (draw=10,000)
+  Total:          4.58 ms
+
+Medium (5 arms, 1K obs):
+----------------------------------------------------------------------
+  update():       0.44 ms
+  win_prop():    17.07 ms (draw=50,000)
+  Total:         17.50 ms
+
+Large (10 arms, 10K obs):
+----------------------------------------------------------------------
+  update():       6.76 ms
+  win_prop():    50.56 ms (draw=100,000)
+  Total:         57.32 ms
+
+======================================================================
+TSPar (Beta-Bernoulli) Benchmark
+======================================================================
+
+Small (2 arms, 1K obs):
+----------------------------------------------------------------------
+  update():       0.04 ms
+  win_prop():     2.79 ms (draw=10,000)
+  Total:          2.83 ms
+
+Medium (5 arms, 10K obs):
+----------------------------------------------------------------------
+  update():       0.02 ms
+  win_prop():     5.27 ms (draw=10,000)
+  Total:          5.30 ms
+
+Large (10 arms, 100K obs):
+----------------------------------------------------------------------
+  update():       0.04 ms
+  win_prop():     9.66 ms (draw=10,000)
+  Total:          9.69 ms
+
+======================================================================
+Detailed Profile: LogisticBandit.win_prop()
+======================================================================
+         3221 function calls in 0.232 seconds
+
+   Ordered by: cumulative time
+   List reduced from 78 to 20 due to restriction <20>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       10    0.206    0.021    0.232    0.023 /home/user/orts/logisticbandit.py:221(win_prop)
+       10    0.020    0.002    0.020    0.002 {method 'argmax' of 'numpy.ndarray' objects}
+       20    0.001    0.000    0.002    0.000 /usr/local/lib/python3.11/dist-packages/numpy/linalg/_linalg.py:2153(pinv)
+       10    0.000    0.000    0.002    0.000 /home/user/orts/logisticbandit.py:66(get_par)
+       30    0.001    0.000    0.002    0.000 /usr/local/lib/python3.11/dist-packages/numpy/linalg/_linalg.py:1668(svd)
+       20    0.000    0.000    0.001    0.000 /home/user/orts/utils.py:98(is_pos_semidef)
+       20    0.000    0.000    0.001    0.000 /usr/local/lib/python3.11/dist-packages/numpy/linalg/_linalg.py:1170(eigvals)
+       10    0.000    0.000    0.001    0.000 /usr/local/lib/python3.11/dist-packages/numpy/_core/numeric.py:2277(allclose)
+       10    0.000    0.000    0.001    0.000 /usr/local/lib/python3.11/dist-packages/numpy/_core/numeric.py:2371(isclose)
+       30    0.001    0.000    0.001    0.000 {built-in method numpy.zeros}
+       70    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/_core/fromnumeric.py:2548(all)
+      120    0.000    0.000    0.000    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+       70    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/_core/fromnumeric.py:86(_wrapreduction_any_all)
+       30    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/_core/fromnumeric.py:66(_wrapreduction)
+       10    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/_core/fromnumeric.py:2304(sum)
+       20    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/_core/fromnumeric.py:3127(amax)
+       60    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/_core/_ufunc_config.py:472(__enter__)
+       50    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/linalg/_linalg.py:189(_commonType)
+       20    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/linalg/_linalg.py:248(_assert_finite)
+       40    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/_core/_methods.py:64(_all)
+
+
+
+
+======================================================================
+Detailed Profile: LinearBandit.win_prop()
+======================================================================
+         221 function calls in 0.366 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       10    0.353    0.035    0.366    0.037 /home/user/orts/linearbandit.py:197(win_prop)
+       10    0.000    0.000    0.010    0.001 /usr/local/lib/python3.11/dist-packages/numpy/_core/fromnumeric.py:1221(argmax)
+       10    0.000    0.000    0.010    0.001 /usr/local/lib/python3.11/dist-packages/numpy/_core/fromnumeric.py:48(_wrapfunc)
+       10    0.010    0.001    0.010    0.001 {method 'argmax' of 'numpy.ndarray' objects}
+       20    0.002    0.000    0.002    0.000 {built-in method numpy.zeros}
+       10    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/_core/fromnumeric.py:2304(sum)
+       10    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/_core/fromnumeric.py:66(_wrapreduction)
+       10    0.000    0.000    0.000    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+       10    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/_core/fromnumeric.py:67(<dictcomp>)
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       10    0.000    0.000    0.000    0.000 /home/user/orts/linearbandit.py:255(<listcomp>)
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       10    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/_core/fromnumeric.py:2299(_sum_dispatcher)
+       40    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       10    0.000    0.000    0.000    0.000 {method 'items' of 'dict' objects}
+       10    0.000    0.000    0.000    0.000 /home/user/orts/linearbandit.py:256(<listcomp>)
+       10    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/_core/fromnumeric.py:1217(_argmax_dispatcher)
+       10    0.000    0.000    0.000    0.000 {method 'keys' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+
+
+
+======================================================================
+Impact of Monte Carlo Sample Size
+======================================================================
+
+   Draw Size     Time (ms)    Time/Sample (μs)
+----------------------------------------------------------------------
+       1,000          0.37              0.3703
+       5,000          1.78              0.3553
+      10,000          3.35              0.3347
+      50,000         16.81              0.3362
+     100,000         34.72              0.3472
+     500,000        176.45              0.3529
+   1,000,000        382.16              0.3822
+
+======================================================================
+Memory Usage Test
+======================================================================
+
+Top 10 memory allocations:
+/home/user/orts/linearbandit.py:293: size=5664 B (+5664 B), count=101 (+101), average=56 B
+/home/user/orts/linearbandit.py:157: size=3384 B (+3384 B), count=2 (+2), average=1692 B
+/home/user/orts/linearbandit.py:156: size=3384 B (+3384 B), count=2 (+2), average=1692 B
+/home/user/orts/linearbandit.py:155: size=3384 B (+3384 B), count=2 (+2), average=1692 B
+/home/user/orts/linearbandit.py:154: size=3384 B (+3384 B), count=2 (+2), average=1692 B
+/home/user/orts/linearbandit.py:195: size=2424 B (+2424 B), count=101 (+101), average=24 B
+/home/user/orts/linearbandit.py:189: size=2400 B (+2400 B), count=100 (+100), average=24 B
+/home/user/orts/linearbandit.py:186: size=2400 B (+2400 B), count=100 (+100), average=24 B
+/home/user/orts/linearbandit.py:141: size=2376 B (+2376 B), count=99 (+99), average=24 B
+/usr/lib/python3.11/tracemalloc.py:560: size=320 B (+320 B), count=2 (+2), average=160 B
+
+Current memory: 0.36 MB
+Peak memory: 77.41 MB
+
+======================================================================
+SUMMARY
+======================================================================
+
+Key Findings:
+1. win_prop() is the main bottleneck (Monte Carlo sampling)
+2. Execution time scales linearly with draw size
+3. Update operations are relatively fast
+4. Most time spent in numpy random number generation
+
+Optimization Opportunities:
+- Monte Carlo sampling (win_prop): Perfect candidate for Rust
+- Parallel sampling across multiple arms
+- Vectorized operations for multiple predictions
+
+Next Steps:
+- Implement critical paths in Rust with PyO3
+- Use rayon for parallel Monte Carlo sampling
+- Benchmark Rust version against Python baseline
+    
