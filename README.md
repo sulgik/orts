@@ -361,9 +361,9 @@ Current test coverage: **88%+** with 100+ unit tests
 If you use this code in your research, please cite the original paper:
 
 ```bibtex
-@article{orts2020,
-  title={Odds Ratio Thompson Sampling},
-  author={Kim, Sulgi},
+@article{kim2020odds,
+  title={Odds-Ratio Thompson Sampling to Control for Time-Varying Effect},
+  author={Kim, Sulgi and Kim, Kyungmin},
   journal={arXiv preprint arXiv:2003.01905},
   year={2020}
 }
