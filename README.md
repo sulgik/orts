@@ -233,9 +233,33 @@ bandit = LinearBandit(obs_noise=0.5, default_sigma=2.0)
 - `win_prop(draw=10000)`: Calculate winning probabilities
 - `get_models()`: Get list of tracked arms
 
-## Examples
+## Examples and Tutorials
 
-Comprehensive examples are available in the `examples/` directory:
+### 📚 New to Multi-Armed Bandits?
+
+Start with the comprehensive tutorial:
+
+- **`TUTORIAL.md`** - Complete guide to Multi-Armed Bandits and Thompson Sampling
+  - Why use bandits? (Exploration-Exploitation tradeoff)
+  - When to use LogisticBandit vs LinearBandit
+  - Real-world examples with detailed explanations
+  - Common mistakes and how to avoid them
+
+- **`examples/tutorial_step_by_step.py`** - Interactive step-by-step tutorial
+  - Run it to learn concepts interactively
+  - Covers basic usage, parameters, and best practices
+
+```bash
+# Start with the interactive tutorial
+python examples/tutorial_step_by_step.py
+
+# Read the comprehensive guide
+cat TUTORIAL.md
+```
+
+### 🚀 Ready to Use?
+
+Practical examples are available in the `examples/` directory:
 
 - **`examples/basic_usage.py`** - LogisticBandit basics
 - **`examples/comparison.py`** - Compare ORTS, Full-TS, and Beta-Bernoulli
