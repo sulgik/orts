@@ -1,3 +1,4 @@
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 from numpy import fill_diagonal
 from numpy.linalg import pinv, inv
@@ -6,19 +7,81 @@ from utils import estimate, is_pos_semidef
 
 
 class LogisticBandit(object):
-    def __init__(self, mu=None, sigma_inv=None, action_list=None):
+    """
+    Logistic Bandit implementation with Thompson Sampling.
+
+    Supports both Full-TS (Full Rank Thompson Sampling) and ORTS (Odds Ratio
+    Thompson Sampling) for multi-armed bandit problems with logistic model.
+    ORTS is more robust to time-varying effects compared to Full-TS.
+
+    Parameters
+    ----------
+    mu : numpy.ndarray, optional
+        Mean vector of the posterior distribution. Default is None.
+    sigma_inv : numpy.ndarray, optional
+        Inverse covariance matrix of the posterior distribution. Default is None.
+    action_list : list, optional
+        List of action names. Default is None.
+
+    Attributes
+    ----------
+    mu : numpy.ndarray
+        Current mean vector of posterior distribution
+    sigma_inv : numpy.ndarray
+        Current inverse covariance matrix of posterior distribution
+    action_list : list
+        Current list of action names
+
+    Examples
+    --------
+    >>> orpar = LogisticBandit()
+    >>> obs = {"arm_1": [30000, 300], "arm_2": [30000, 290]}
+    >>> orpar.update(obs)
+    >>> orpar.win_prop()
+    """
+    def __init__(self, mu: Optional[np.ndarray] = None,
+                 sigma_inv: Optional[np.ndarray] = None,
+                 action_list: Optional[List[str]] = None) -> None:
         self.mu, self.sigma_inv, self.action_list = None, None, None
         self._initialize(mu, sigma_inv, action_list)
 
-    def _initialize(self, mu, sigma_inv, action_list):
+    def _initialize(self, mu: Optional[np.ndarray],
+                    sigma_inv: Optional[np.ndarray],
+                    action_list: Optional[List[str]]) -> None:
         self.mu = np.copy(mu) if mu is not None else np.array([])
         self.sigma_inv = np.copy(sigma_inv) if sigma_inv is not None else np.empty((0, 0))
         self.action_list = action_list.copy() if action_list is not None else []
 
-    def get_models(self):
+    def get_models(self) -> List[str]:
+        """
+        Get the list of currently tracked actions.
+
+        Returns
+        -------
+        list
+            List of action names currently being tracked.
+        """
         return self.action_list
 
-    def get_par(self, action_list=None):
+    def get_par(self, action_list: Optional[List[str]] = None) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """
+        Get parameters (mu, sigma_inv) transformed for a specific action list.
+
+        This method transforms the internal representation to use a different
+        reference action or subset of actions.
+
+        Parameters
+        ----------
+        action_list : list, optional
+            List of actions to get parameters for. The last action in the list
+            is used as the reference. Default is None.
+
+        Returns
+        -------
+        tuple of (numpy.ndarray, numpy.ndarray) or (None, None)
+            Transformed (mu, sigma_inv) for the given action_list.
+            Returns (None, None) if action_list is empty or None.
+        """
         if not action_list:
             return None, None
 
@@ -49,14 +112,73 @@ class LogisticBandit(object):
 
         return mu, sigma_inv
 
-    def transform(self, action_list):
+    def transform(self, action_list: List[str]) -> None:
         mu, sigma_inv = self.get_par(action_list)
         self.__init__(
             mu = mu, sigma_inv = sigma_inv, action_list = action_list)
 
     def update(
-        self, obs, odds_ratios_only = True, remove_not_observed = False,
-        decay = .0):
+        self, obs: Dict[str, List[float]], odds_ratios_only: bool = True,
+        remove_not_observed: bool = False, decay: float = 0.0) -> None:
+        """
+        Update the bandit model with new observations.
+
+        Parameters
+        ----------
+        obs : dict
+            Dictionary mapping action names to [total_count, success_count].
+            Example: {"arm_1": [1000, 50], "arm_2": [1000, 45]}
+        odds_ratios_only : bool, optional
+            If True, use ORTS (Odds Ratio Thompson Sampling).
+            If False, use Full-TS (Full Rank Thompson Sampling).
+            Default is True.
+        remove_not_observed : bool, optional
+            If True, remove actions that were not observed.
+            Default is False.
+        decay : float, optional
+            Decay parameter for discounting prior information (0.0 to 1.0).
+            Higher values give more weight to new observations.
+            Default is 0.0 (no decay).
+
+        Returns
+        -------
+        None
+            Updates self.mu, self.sigma_inv, and self.action_list in place.
+
+        Raises
+        ------
+        ValueError
+            If obs is empty, decay is out of range, or observation format is invalid.
+        """
+        # Input validation
+        if not obs:
+            raise ValueError("obs dictionary cannot be empty")
+
+        if not 0.0 <= decay <= 1.0:
+            raise ValueError("decay must be between 0.0 and 1.0, got {}".format(decay))
+
+        # Validate observation format
+        for action, values in obs.items():
+            if not isinstance(values, (list, tuple)) or len(values) != 2:
+                raise ValueError(
+                    "Each observation must be [total_count, success_count], "
+                    "got {} for action '{}'".format(values, action)
+                )
+            total, success = values
+            if total < 0:
+                raise ValueError(
+                    "Total count must be non-negative, got {} for action '{}'".format(total, action)
+                )
+            if success < 0:
+                raise ValueError(
+                    "Success count must be non-negative, got {} for action '{}'".format(success, action)
+                )
+            if success > total:
+                raise ValueError(
+                    "Success count ({}) cannot exceed total count ({}) for action '{}'".format(
+                        success, total, action
+                    )
+                )
 
         obs_valid = {i:obs[i] for i in obs.keys() if obs[i][0] > 0}
 
@@ -96,8 +218,54 @@ class LogisticBandit(object):
             self.sigma_inv = parameters[1]
             self.action_list = action_list
 
-    def win_prop(self, action_list = None, draw = 100000, aggressive = 1.):
-        if action_list is None: 
+    def win_prop(self, action_list: Optional[List[str]] = None,
+                 draw: int = 100000, aggressive: float = 1.0) -> Dict[str, float]:
+        """
+        Calculate the winning probability for each action using Thompson Sampling.
+
+        Uses Monte Carlo simulation to estimate the probability that each action
+        has the highest reward.
+
+        Parameters
+        ----------
+        action_list : list, optional
+            List of actions to consider. If None, uses all tracked actions.
+            Default is None.
+        draw : int, optional
+            Number of Monte Carlo samples to draw. More samples give more
+            accurate estimates but take longer to compute.
+            Default is 100000.
+        aggressive : float, optional
+            Aggressiveness parameter for probability adjustment (gamma exponent).
+            Values > 1 increase exploitation, values < 1 increase exploration.
+            Default is 1.0 (no adjustment).
+
+        Returns
+        -------
+        dict
+            Dictionary mapping action names to their winning probabilities.
+            Probabilities sum to 1.0.
+
+        Raises
+        ------
+        ValueError
+            If draw is not positive or aggressive is not positive.
+
+        Examples
+        --------
+        >>> orpar.win_prop()
+        {'arm_1': 0.543, 'arm_2': 0.457}
+        >>> orpar.win_prop(aggressive=2.0)  # More aggressive exploitation
+        {'arm_1': 0.687, 'arm_2': 0.313}
+        """
+        # Input validation
+        if draw <= 0:
+            raise ValueError("draw must be positive, got {}".format(draw))
+
+        if aggressive <= 0:
+            raise ValueError("aggressive must be positive, got {}".format(aggressive))
+
+        if action_list is None:
             action_list = self.action_list
 
         if len(action_list) == 0:
@@ -130,11 +298,21 @@ class LogisticBandit(object):
                 mc = np.random.normal(mu[0], np.sqrt(sigma[0,0]), draw)
                 mc = mc.reshape(draw,1)
             else:
-                while not is_pos_semidef(sigma[:-1,:-1]):
-                    # critical case
-                    print("Warning: not positive semidefinite")
-                    exit() # should be removed
-                    np.fill_diagonal(sigma, sigma.diagonal() + .001)
+                # Ensure positive semidefinite covariance matrix
+                max_psd_iterations = 100
+                psd_increment = 0.001
+                iteration = 0
+                while not is_pos_semidef(sigma[:-1,:-1]) and iteration < max_psd_iterations:
+                    print("Warning: not positive semidefinite, adjusting diagonal")
+                    np.fill_diagonal(sigma, sigma.diagonal() + psd_increment)
+                    iteration += 1
+
+                if not is_pos_semidef(sigma[:-1,:-1]):
+                    raise ValueError(
+                        "Failed to make covariance matrix positive semidefinite after {} iterations".format(
+                            max_psd_iterations
+                        )
+                    )
 
                 mc = np.random.multivariate_normal(mu[:-1], sigma[:-1,:-1], draw)
 
