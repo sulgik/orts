@@ -1,9 +1,32 @@
+from typing import Callable, List, Tuple
 import numpy as np
 from numpy import clip
 from scipy.optimize import minimize
 
 
-def estimate(prior, obs, indexes, discount = 0.):
+def estimate(prior: Tuple[np.ndarray, np.ndarray],
+             obs: List[List[float]],
+             indexes: List[int],
+             discount: float = 0.0) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Estimate posterior parameters using maximum a posteriori (MAP) estimation.
+
+    Parameters
+    ----------
+    prior : tuple of (numpy.ndarray, numpy.ndarray)
+        Prior parameters (mu, sigma_inv).
+    obs : list of lists
+        Observations as [[total_count, success_count], ...].
+    indexes : list of int
+        Indexes defining data structure: [new_actions_end, non_observed_end, total_end].
+    discount : float, optional
+        Discount factor for prior (0.0 to 1.0). Default is 0.0.
+
+    Returns
+    -------
+    tuple of (numpy.ndarray, numpy.ndarray)
+        Estimated posterior parameters (mu_hat, sigma_inv).
+    """
     #
     # estimate mu and using this estimate sigma inverse
     #
@@ -43,9 +66,27 @@ def _compute_initial(prior, obs, indexes):
     return initial
 
 
-def logistic(x):
-    # set a truncation exponent.
-    trunc = 9.  # exp(8)/(1+exp(8)) = 0.9997 which is close enough to 1 as to not matter in most cases.
+def logistic(x: float, trunc: float = 9.0) -> float:
+    """
+    Compute the logistic function with numerical stability.
+
+    Uses truncation to prevent overflow/underflow.
+
+    Parameters
+    ----------
+    x : float
+        Input value.
+    trunc : float, optional
+        Truncation threshold to prevent overflow. Default is 9.0.
+        exp(9)/(1+exp(9)) ≈ 0.9999 which is close enough to 1.
+
+    Returns
+    -------
+    float
+        Logistic function output: 1 / (1 + exp(-x)).
+    """
+    # Clip x to prevent overflow/underflow
+    # exp(9)/(1+exp(9)) = 0.9999 which is close enough to 1 as to not matter in most cases.
     x = np.clip(x, -trunc, trunc)
 
     if x > 0:
@@ -54,7 +95,20 @@ def logistic(x):
         return np.exp(x) / (1. + np.exp(x))
 
 
-def is_pos_semidef(x):
+def is_pos_semidef(x: np.ndarray) -> bool:
+    """
+    Check if a matrix is positive semidefinite.
+
+    Parameters
+    ----------
+    x : numpy.ndarray
+        Square matrix to check.
+
+    Returns
+    -------
+    bool
+        True if all eigenvalues are non-negative (positive semidefinite).
+    """
     return np.all(np.linalg.eigvals(x) >= 0)
 
 
