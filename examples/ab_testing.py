@@ -12,10 +12,10 @@ import numpy as np
 from orts import LogisticBandit
 
 rng = np.random.default_rng(7)
-truth = {"control": 0.030, "variant_1": 0.031, "variant_2": 0.036}
+truth = {"control": 0.030, "variant_1": 0.031, "variant_2": 0.033}
 
 # 1. The incumbent's per-arm Beta posteriors become the contrast prior.
-incumbent = {"control": (1 + 900, 1 + 29100), "variant_1": (1 + 930, 1 + 29070), "variant_2": (1 + 1080, 1 + 28920)}
+incumbent = {"control": (1 + 90, 1 + 2910), "variant_1": (1 + 93, 1 + 2907), "variant_2": (1 + 99, 1 + 2901)}   # 3,000 exposures each so far
 bandit = LogisticBandit.from_beta_posteriors(incumbent, reference="control")
 alloc = {a: 1 / 3 for a in truth}
 
@@ -27,7 +27,7 @@ for t in range(1, 41):
     level_shift = rng.normal(0, 0.25)                                     # the platform moves every day
     obs = {}
     for a in active:
-        n = int(30000 * alloc[a])
+        n = int(20000 * alloc[a])
         p = truth[a] * np.exp(level_shift) / (1 - truth[a] + truth[a] * np.exp(level_shift))
         obs[a] = [n, int(rng.binomial(n, p))]
     bandit.update(obs, remove_not_observed=True)
