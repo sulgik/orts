@@ -3,6 +3,7 @@
 [![Tests](https://github.com/sulgik/orts/actions/workflows/tests.yml/badge.svg)](https://github.com/sulgik/orts/actions/workflows/tests.yml)
 [![PyPI](https://img.shields.io/pypi/v/orts.svg)](https://pypi.org/project/orts/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/sulgik/orts/blob/main/notebooks/orts_quickstart.ipynb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Reference implementation of **Odds-Ratio Thompson Sampling**, a Thompson
@@ -46,6 +47,13 @@ OR-TS   :  beta_t = beta_{t-1},  alpha_t ~ flat         only the contrasts are f
 *Five arms, a common shock of sd 0.30 redrawn every batch, mean of five
 runs (`examples/make_readme_figures.py`). The policies that remember the
 level keep chasing it; OR-TS never carried it.*
+
+## Try it in ten minutes
+
+[`notebooks/orts_quickstart.ipynb`](https://colab.research.google.com/github/sulgik/orts/blob/main/notebooks/orts_quickstart.ipynb)
+runs in Colab with no setup: the two coordinate systems, one update cycle, a
+platform shift, the three-policy comparison, the diagnostics on your own
+counts, and a default stopping rule.
 
 ## Install
 
@@ -186,6 +194,7 @@ orts/                 the package
   diagnostics.py      batch contrasts, excess variance, R, implied decay
   utils.py            the per-batch Laplace fit
 examples/             runnable scripts, including the README figure generator
+notebooks/            the Colab quickstart
 docs/                 the README figures
 tests/                pytest suite
 archive/2020/         the 2020 preprint's synthetic runner and its outputs
