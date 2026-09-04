@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from ts import TSPar
+from orts import TSPar
 
 
 class TestTSParInitialization:

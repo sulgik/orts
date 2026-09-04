@@ -2,8 +2,8 @@
 
 import pytest
 import numpy as np
-from logisticbandit import LogisticBandit
-from ts import TSPar
+from orts import LogisticBandit
+from orts import TSPar
 
 
 @pytest.fixture

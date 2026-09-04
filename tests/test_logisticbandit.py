@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from logisticbandit import LogisticBandit
+from orts import LogisticBandit
 
 
 class TestLogisticBanditInitialization:
