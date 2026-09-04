@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "orts"
 version = "2.0.0"
-description = "Odds-Ratio Thompson Sampling: contrast-based Thompson sampling for batched binary-reward bandits"
+description = "Odds-Ratio Thompson Sampling: Thompson sampling for A/B tests and bandits whose baseline keeps moving"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -30,7 +30,6 @@ Repository = "https://github.com/sulgik/orts"
 
 [tool.setuptools]
 packages = ["orts"]
-py-modules = ["logisticbandit", "ts", "utils"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
