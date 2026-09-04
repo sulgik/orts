@@ -2,9 +2,8 @@ import numpy as np
 import numpy.random 
 import pandas as pd
 
-from logisticbandit import LogisticBandit
-from utils import logistic
-from ts import TSPar
+from orts import LogisticBandit, TSPar
+from orts import logistic
 
 
 def run_all(p_list, MAX_TIMESTEP, noise=0.0, N=100):

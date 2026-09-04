@@ -1,370 +1,210 @@
-# Multi-Armed Bandit with Thompson Sampling
+# OR-TS — Odds-Ratio Thompson Sampling
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Tests](https://github.com/sulgik/orts/actions/workflows/tests.yml/badge.svg)](https://github.com/sulgik/orts/actions/workflows/tests.yml)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A Python library for Multi-armed Bandit problems supporting both **binary outcomes** (LogisticBandit) and **continuous rewards** (LinearBandit).
+Reference implementation of **Odds-Ratio Thompson Sampling**, a Thompson
+sampling policy for batched A/B tests and multi-armed bandits with binary
+outcomes whose memory is the **joint posterior of the treatment contrasts**
+(log odds ratios) rather than each arm's absolute event rate.
 
-- **LogisticBandit**: For binary outcomes (clicks, conversions, etc.) using logistic regression with Thompson Sampling. Implements Full-Rank Thompson Sampling (Full-TS) and Odds Ratio Thompson Sampling (ORTS), as described in [this paper](https://arxiv.org/abs/2003.01905).
+> S. Kim (2026). *Odds-Ratio Thompson Sampling: A Specification and Design
+> Guide for Contrast-Based Multi-Armed Bandits.* Manuscript.
+> S. Kim and K. Kim (2020). *Odds-ratio Thompson sampling to control for
+> time-varying effect.* [arXiv:2003.01905](https://arxiv.org/abs/2003.01905).
 
-- **LinearBandit**: For continuous outcomes (revenue, latency, ratings, etc.) using Gaussian Thompson Sampling with Bayesian updating.
+## The idea in one paragraph
 
-**ORTS is generally preferred over Full-TS or Beta-Bernoulli Thompson Sampling** for binary outcomes because it is more robust to time-varying effects, making it ideal for real-world A/B testing scenarios where user behavior changes over time.
+A platform's event rates move together: a promotion, a layout change, a
+holiday shifts every arm at once. A per-arm Beta-Bernoulli state remembers
+each arm's absolute rate and must unlearn all of them after every such
+shift. OR-TS fits, once per batch, an ordinary reference-coded logistic
+regression on the batch's counts, with a fresh flat-prior intercept for the
+batch's common level and the carried posterior of the contrasts as the
+prior. It then keeps only the contrasts and discards the level. Within a
+batch the two descriptions are the same thing in different coordinates;
+across batches they bet on different things staying fixed. On 86 real A/B
+test series the level moved about twenty-five times as much as the
+contrast, and in every one of them it moved more.
 
-## Features
+![One synthetic experiment seen twice: absolute rates wobble together, the contrasts sit still](docs/rates_and_contrasts.png)
 
-- ✅ **Multiple Bandit Types**:
-  - **LogisticBandit** for binary outcomes (clicks, conversions)
-    - ORTS (Odds Ratio Thompson Sampling) - robust to time-varying effects
-    - Full-TS (Full Rank Thompson Sampling) - traditional approach
-  - **LinearBandit** for continuous rewards (revenue, latency, ratings)
-    - Gaussian Thompson Sampling with conjugate Bayesian updates
-  - **Beta-Bernoulli Thompson Sampling** - simple baseline for binary outcomes
+*Left: three arms' observed event rates move almost in parallel because a
+common level dominates every curve. Right: the same batches in contrast
+coordinates. That is what OR-TS remembers.*
 
-- ✅ **Type-Safe**: Full type hints for better IDE support and code safety
-
-- ✅ **Input Validation**: Comprehensive validation with clear error messages
-
-- ✅ **Well-Documented**: Detailed docstrings in NumPy style
-
-- ✅ **Configurable**: Flexible parameters for exploration/exploitation trade-offs
-
-- ✅ **Numerically Stable**: Robust handling of edge cases and numerical issues
-
-- ✅ **Well-Tested**: Comprehensive test suite with 100+ unit tests and 88%+ coverage
-
-## Installation
-
-### From source
-```bash
-# Clone the repository
-git clone https://github.com/sulgik/orts.git
-cd orts
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Install the package
-pip install -e .
+```
+Beta-TS :  p_{i,t} = p_{i,t-1}                        every arm's rate is fixed
+Full-TS :  (alpha_t, beta_t) = (alpha_{t-1}, beta_{t-1})   same bet, logistic coordinates
+OR-TS   :  beta_t = beta_{t-1},  alpha_t ~ flat         only the contrasts are fixed
 ```
 
-### Development installation
-```bash
-# Install with development dependencies
-pip install -e ".[dev]"
-```
+![Share of traffic on the best arm under a common shock: OR-TS holds it, Beta-TS and Full-TS lose it](docs/comparison_common_shock.png)
 
-## Quick Start
+*Five arms, a common shock of sd 0.30 redrawn every batch, mean of five
+runs (`examples/make_readme_figures.py`). The policies that remember the
+level keep chasing it; OR-TS never carried it.*
 
-### LogisticBandit - For Binary Outcomes
-
-Use LogisticBandit when your outcomes are binary (success/failure, click/no-click, convert/not-convert).
-
-#### Basic Usage (ORTS)
-
-```python
-from logisticbandit import LogisticBandit
-
-# Create a LogisticBandit instance (ORTS by default)
-bandit = LogisticBandit()
-
-# First observation: arm_1 had 300 successes out of 30000 trials
-obs = {"arm_1": [30000, 300], "arm_2": [30000, 290]}
-bandit.update(obs)
-
-# Get winning probabilities for each arm
-probabilities = bandit.win_prop()
-print(probabilities)
-# Output: {'arm_1': 0.543, 'arm_2': 0.457}
-
-# Get the list of tracked arms
-print(bandit.get_models())
-# Output: ['arm_1', 'arm_2']
-```
-
-### Adding New Arms
-
-```python
-# Add a new arm (arm_3) to the existing model
-obs = {"arm_1": [20000, 200], "arm_2": [20000, 180], "arm_3": [20000, 210]}
-bandit.update(obs)
-
-probabilities = bandit.win_prop()
-print(probabilities)
-# Output: {'arm_1': 0.312, 'arm_2': 0.287, 'arm_3': 0.401}
-```
-
-### Full-Rank Thompson Sampling
-
-```python
-# Use Full-TS instead of ORTS
-obs = {"arm_1": [30000, 310], "arm_3": [30000, 300]}
-bandit.update(obs, odds_ratios_only=False)
-
-probabilities = bandit.win_prop()
-```
-
-### Advanced Options
-
-```python
-# Adjust exploration/exploitation trade-off
-probabilities = bandit.win_prop(aggressive=2.0)  # More exploitation
-probabilities = bandit.win_prop(aggressive=0.5)  # More exploration
-
-# Use decay to discount old observations (useful for non-stationary environments)
-bandit.update(obs, decay=0.1)  # 10% discount on prior information
-
-# Adjust sampling precision
-probabilities = bandit.win_prop(draw=50000)  # More samples = more accurate
-```
-
-#### Beta-Bernoulli Thompson Sampling
-
-```python
-from ts import TSPar
-
-# Traditional Beta-Bernoulli approach
-ts_bandit = TSPar()
-obs = {"arm_1": [1000, 50], "arm_2": [1000, 45]}
-ts_bandit.update(obs)
-
-probabilities = ts_bandit.win_prop()
-```
-
-### LinearBandit - For Continuous Rewards
-
-Use LinearBandit when your outcomes are continuous values (revenue, response time, ratings, etc.).
-
-#### Basic Usage
-
-```python
-from linearbandit import LinearBandit
-
-# Create a LinearBandit instance
-bandit = LinearBandit(obs_noise=1.0)
-
-# Observations are continuous reward values
-obs = {
-    "variant_a": [2.3, 2.7, 2.4, 2.6, 2.5],  # Multiple observations
-    "variant_b": [3.1, 3.3, 3.0],             # Different number is fine
-    "variant_c": 2.8                          # Single value also works
-}
-bandit.update(obs)
-
-# Get winning probabilities
-probabilities = bandit.win_prop()
-print(probabilities)
-# Output: {'variant_b': 0.65, 'variant_c': 0.25, 'variant_a': 0.10}
-```
-
-#### Advanced Options
-
-```python
-# Get detailed statistics
-stats = bandit.get_statistics()
-for action, stat in stats.items():
-    print(f"{action}: mean={stat['mu']:.3f}, uncertainty={stat['sigma']:.3f}")
-
-# Adjust exploration/exploitation
-probabilities = bandit.win_prop(aggressive=2.0)  # More exploitation
-
-# Use decay for non-stationary environments
-bandit.update(obs, decay=0.2)  # Discount old information
-
-# Custom noise parameters
-bandit = LinearBandit(obs_noise=0.5, default_sigma=2.0)
-```
-
-## API Reference
-
-### LogisticBandit
-
-**For binary outcomes using ORTS and Full-TS algorithms.**
-
-#### Methods
-
-- `update(obs, odds_ratios_only=True, decay=0.0)`: Update model with new observations
-  - `obs`: Dictionary mapping arm names to `[total_count, success_count]`
-  - `odds_ratios_only`: If True, use ORTS; if False, use Full-TS
-  - `decay`: Discount factor for prior information (0.0 to 1.0)
-
-- `win_prop(action_list=None, draw=100000, aggressive=1.0)`: Calculate winning probabilities
-  - `action_list`: List of arms to consider (None = all arms)
-  - `draw`: Number of Monte Carlo samples
-  - `aggressive`: Exploration/exploitation parameter
-
-- `get_models()`: Get list of currently tracked arms
-
-- `get_par(action_list)`: Get transformed parameters for specific arms
-
-### LinearBandit
-
-**For continuous rewards using Gaussian Thompson Sampling.**
-
-#### Methods
-
-- `update(obs, decay=0.0)`: Update model with new observations
-  - `obs`: Dictionary mapping action names to rewards (list of floats or single float)
-  - `decay`: Discount factor for prior information (0.0 to 1.0)
-
-- `win_prop(action_list=None, draw=100000, aggressive=1.0)`: Calculate winning probabilities
-  - `action_list`: List of actions to consider (None = all actions)
-  - `draw`: Number of Monte Carlo samples
-  - `aggressive`: Exploration/exploitation parameter
-
-- `get_models()`: Get list of currently tracked actions
-
-- `get_statistics()`: Get detailed statistics (mu, sigma, count, mean_reward) for all actions
-
-#### Constructor Parameters
-
-- `mu`: Prior mean for each action (dict)
-- `sigma`: Prior standard deviation for each action (dict)
-- `default_sigma`: Default prior uncertainty for new actions (default: 1.0)
-- `obs_noise`: Assumed observation noise standard deviation (default: 1.0)
-
-### TSPar
-
-**Beta-Bernoulli Thompson Sampling baseline for binary outcomes.**
-
-#### Methods
-
-- `update(obs)`: Update Beta distributions with observations
-- `win_prop(draw=10000)`: Calculate winning probabilities
-- `get_models()`: Get list of tracked arms
-
-## Examples and Tutorials
-
-### 📚 New to Multi-Armed Bandits?
-
-Start with the comprehensive tutorial:
-
-- **`TUTORIAL.md`** - Complete guide to Multi-Armed Bandits and Thompson Sampling
-  - Why use bandits? (Exploration-Exploitation tradeoff)
-  - When to use LogisticBandit vs LinearBandit
-  - Real-world examples with detailed explanations
-  - Common mistakes and how to avoid them
-
-- **`examples/tutorial_step_by_step.py`** - Interactive step-by-step tutorial
-  - Run it to learn concepts interactively
-  - Covers basic usage, parameters, and best practices
+## Install
 
 ```bash
-# Start with the interactive tutorial
-python examples/tutorial_step_by_step.py
-
-# Read the comprehensive guide
-cat TUTORIAL.md
+pip install -e .            # from a clone; numpy and scipy are the only dependencies
+pip install -e ".[dev]"     # adds pytest
 ```
 
-### 🚀 Ready to Use?
+## Quick start: Algorithm 1
 
-Practical examples are available in the `examples/` directory:
+```python
+import numpy as np
+from orts import LogisticBandit
 
-- **`examples/basic_usage.py`** - LogisticBandit basics
-- **`examples/comparison.py`** - Compare ORTS, Full-TS, and Beta-Bernoulli
-- **`examples/ab_testing.py`** - Realistic A/B testing simulation
-- **`examples/linear_bandit.py`** - LinearBandit for continuous rewards
+bandit = LogisticBandit()                        # no prior information
 
-Run any example:
+# boundary t: the platform hands over the batch's counts {arm: [exposures, events]}
+bandit.update({"A": [30000, 300], "B": [30000, 330], "C": [30000, 290]})
+#   R1  fit the reference-coded logistic model with a fresh flat intercept
+#   R2  keep the marginal Gaussian of the contrasts (mu, S); discard the intercept
+
+allocation = bandit.win_prop(draw=100_000, rng=np.random.default_rng(0))
+#   A1  draw contrast vectors, score the reference arm 0, find each draw's winner
+#   A2  winner shares are the next batch's allocation
+# {'A': 0.19, 'B': 0.74, 'C': 0.07}
+```
+
+Repeat `update` then `win_prop` at every boundary. The state is the pair
+`(bandit.mu, bandit.sigma_inv)` over `bandit.get_models()`: the contrasts of
+every arm against the last one, then the level, which the next update
+replaces.
+
+## What the paper calls it, and where it is in the code
+
+| paper | code |
+|---|---|
+| Algorithm 1, R1–R2 (fit, marginalize) | `LogisticBandit.update(obs)` |
+| Algorithm 1, A1 (draws) / A2 (allocation) | `contrast_draws()` / `win_prop()` |
+| Full-TS, the control with Beta-TS's memory | `update(obs, odds_ratios_only=False)` |
+| Beta-TS, the per-arm baseline | `TSPar` |
+| discounted Beta-TS, the matched forgetting baseline | `DiscountedTSPar(discount)` |
+| decay λ (Section 2.3) | `update(obs, decay=λ)` |
+| aggressiveness γ and floors (Section 5.2) | `win_prop(aggressive=γ, floor=f)` |
+| changing arm sets, new reference (Supplement B) | `get_par(arms)`, `transform(arms)`, unseen arms in `win_prop(arms)` |
+| warm start from a Beta-Bernoulli service (Supplement H) | `LogisticBandit.from_beta_posteriors({arm: (a, b)})` |
+| skipped batches: no events or no non-events (Supplement A) | `update` returns `False` and leaves the state |
+| stopping and dropping quantities (Section 6.1) | `win_prop()` and `expected_loss()` |
+| setting λ from measured drift (Supplement H) | `implied_decay(excess_sd_beta)` |
+| diagnostics for the assumption (Sections 4.1, 5.3) | `orts.diagnostics` |
+
+## The two controls
+
+**Decay** acts on what is carried. `update(obs, decay=0.1)` scales the
+carried contrast precision by `1 - 0.1` before the fit; the effective memory
+is roughly `1/decay` batches, and the same number on `DiscountedTSPar` means
+the same memory, since tempering a Beta density is count discounting. The
+paper's registered simulations say when it pays: where the arm set is fixed
+and the contrasts sit still, `decay=0` is the setting the data support and
+running decay anyway costs regret; where arms are inventory whose relative
+appeal drifts, decay is the difference between trailing and leading.
+
+**Aggressiveness** acts on how strongly the belief drives traffic.
+`win_prop(aggressive=2.0)` raises the winner shares to a power and
+renormalizes; `floor=0.05` guarantees every arm a share afterwards. Neither
+touches the posterior.
+
+## Diagnostics: is the assumption holding?
+
+The state-separation assumption is that within a batch the arms share one
+level and across batches the contrasts persist. `orts.diagnostics` computes,
+from logged counts alone, what Section 5.3 of the paper says to watch:
+
+```python
+from orts import diagnostics as dg
+
+(alpha, var_alpha), contrasts = dg.batch_contrasts(obs_t, reference="A")   # one batch
+# collect alpha_t, var_alpha_t and contrasts["B"] over batches, then
+R = dg.level_contrast_ratio(alphas, alpha_vars, betas, beta_vars)  # >>1: level moves, contrast does not
+tau = dg.excess_sd(betas, beta_vars)                              # the contrast's drift beyond noise
+lam = bandit.implied_decay(tau)                                   # the decay that drift implies
+```
+
+Plot each batch's contrast against `dg.sampling_band(beta_vars)`; points that
+wander outside the band with visible memory mean the contrasts are drifting.
+`dg.lag1_autocorrelation` separates drift (positive) from a constant seen
+through noise (near zero). Keep expected events per arm per batch above ten;
+below one, the Gaussian state is materially wrong and `TSPar` is the safer
+tool. The lever is the cycle length, not the method.
+
+## Stopping and dropping arms
+
+The state computes what a default rule needs: `win_prop()` gives each arm's
+posterior probability of being best, `expected_loss()` the expected loss of
+committing to it now, in log-odds units. A workable default: drop an arm
+whose probability stays below 1% for several consecutive batches; stop when
+the leader's probability exceeds 95% and its expected loss is below what the
+business will forgo. A threshold on absolute-rate posteriors moves when the
+level moves; a threshold on the contrast posterior does not. See
+`examples/ab_testing.py`, and remember that checking every batch is a
+sequential test.
+
+## Migrating a running Beta-Bernoulli service
+
+Same counters in, same probability-matching interface out; three things
+change. Counts must be per cycle, not cumulative. The state is a fold over
+the batch history, not a cache recomputable from totals, so persist it with
+the id of the last batch absorbed. And the incumbent's Beta posteriors can
+seed the contrast prior: `LogisticBandit.from_beta_posteriors({arm: (a, b)})`
+inherits its contrast beliefs and, at the first update, discards its level
+belief, which is the point.
+
+## Examples and tests
+
 ```bash
-python examples/linear_bandit.py
-python examples/comparison.py
+python examples/basic_usage.py     # Algorithm 1 one boundary at a time
+python examples/comparison.py      # OR-TS vs Beta-TS vs Full-TS under a common shock
+python examples/ab_testing.py      # warm start, then the default stopping rule
+python examples/make_readme_figures.py   # the two README figures (needs matplotlib)
+pytest -q
 ```
 
-## Mathematical Background
+`tests/test_paper_features.py` checks the paper's claims that are code:
+ranking invariance under a level shift, the memory rule, the properness
+skip, decay and its Beta-side counterpart, aggressiveness and floors, the
+reference transformation, the warm start, the diagnostics.
 
-### LogisticBandit (ORTS)
+## Layout
 
-This implementation is based on the paper:
-- **Paper**: [Odds Ratio Thompson Sampling](https://arxiv.org/abs/2003.01905)
-- **Key Idea**: ORTS uses odds ratios to model arm differences, which provides robustness to time-varying effects compared to traditional approaches
-
-### LinearBandit (Gaussian Thompson Sampling)
-
-Uses Bayesian inference with Gaussian conjugate priors:
-- **Prior**: Each action's mean reward follows N(μ₀, σ₀²)
-- **Likelihood**: Observations are N(μ, σ²) where σ is the observation noise
-- **Posterior**: Also Gaussian (conjugate prior property)
-- **Thompson Sampling**: Sample from posterior and select action with highest sample
-
-## Contributing
-
-Contributions are welcome! For major changes, please open an issue first to discuss what you would like to change.
-
-### Development Setup
-
-```bash
-# Install development dependencies
-pip install -e ".[dev]"
-
-# Run tests (once implemented)
-pytest
-
-# Check types (recommended)
-mypy logisticbandit.py ts.py utils.py
+```
+orts/                 the package
+  logisticbandit.py   LogisticBandit: OR-TS (default) and Full-TS
+  ts.py               TSPar, DiscountedTSPar
+  diagnostics.py      batch contrasts, excess variance, R, implied decay
+  utils.py            the per-batch Laplace fit
+examples/             runnable scripts, including the README figure generator
+docs/                 the README figures
+tests/                pytest suite
+archive/2020/         the 2020 preprint's synthetic runner and its outputs
+logisticbandit.py, ts.py, utils.py   deprecated import shims
 ```
 
-## Testing
+The registered simulations, dataset analyses and manuscript of the 2026
+paper live in a separate research repository; this package is the
+implementation they run.
 
-Run the comprehensive test suite:
-
-```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=. --cov-report=html
-
-# Run specific test file
-pytest tests/test_linearbandit.py
-pytest tests/test_logisticbandit.py
-```
-
-Current test coverage: **88%+** with 100+ unit tests
-
-## Performance Considerations
-
-- Default Monte Carlo samples: 100,000 for LogisticBandit, 10,000 for TSPar
-- Reduce `draw` parameter for faster computation (at the cost of accuracy)
-- For production use with many arms, consider adjusting `draw` based on your latency requirements
-
-## Changelog
-
-### Version 0.2.0 (Latest)
-- ✅ **NEW**: Added LinearBandit for continuous rewards (Gaussian Thompson Sampling)
-- ✅ **NEW**: Comprehensive test suite with 100+ tests (88%+ coverage)
-- ✅ **NEW**: Multiple examples in `examples/` directory
-- ✅ **NEW**: CI/CD with GitHub Actions
-- ✅ Type checking with mypy
-- ✅ Code coverage analysis
-
-### Version 0.1.0
-- ✅ Fixed critical `exit()` bug that caused program termination
-- ✅ Added comprehensive docstrings
-- ✅ Added type hints for all public methods
-- ✅ Added input validation with clear error messages
-- ✅ Made hardcoded values configurable
-- ✅ Added `requirements.txt` and `setup.py` for easy installation
-- ✅ Improved numerical stability in covariance matrix handling
-
-## Author
-
-* **Sulgi Kim** - [GitHub](https://github.com/sulgik)
-
-## License
-
-[MIT](https://choosealicense.com/licenses/mit/)
-
-## Citation
-
-If you use this code in your research, please cite the original paper:
+## Citing
 
 ```bibtex
-@article{kim2020odds,
-  title={Odds-Ratio Thompson Sampling to Control for Time-Varying Effect},
-  author={Kim, Sulgi and Kim, Kyungmin},
-  journal={arXiv preprint arXiv:2003.01905},
-  year={2020}
+@unpublished{kim2026orts,
+  author = {Kim, Sulgi},
+  title  = {Odds-Ratio Thompson Sampling: A Specification and Design Guide
+            for Contrast-Based Multi-Armed Bandits},
+  year   = {2026}
+}
+@article{kim2020orts,
+  author  = {Kim, Sulgi and Kim, K.},
+  title   = {Odds-ratio Thompson sampling to control for time-varying effect},
+  journal = {arXiv preprint arXiv:2003.01905},
+  year    = {2020}
 }
 ```
+
+MIT License.

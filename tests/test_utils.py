@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from utils import logistic, is_pos_semidef, estimate
+from orts.utils import logistic, is_pos_semidef, estimate
 
 
 class TestLogistic:
