@@ -73,9 +73,14 @@ allocation = bandit.win_prop(draw=100_000, rng=np.random.default_rng(0))
 ```
 
 Repeat `update` then `win_prop` at every boundary. The state is the pair
-`(bandit.mu, bandit.sigma_inv)` over `bandit.get_models()`: the contrasts of
-every arm against the last one, then the level, which the next update
-replaces.
+`(bandit.mu, bandit.sigma_inv)` over `bandit.action_list`, kept in one
+canonical order: arms in the order first seen, the reference arm last (the
+first arm of the first batch, or `LogisticBandit(reference="control")`).
+The entries are the contrasts of every arm against the reference, then the
+level, which the next update replaces. Batches may name arms in any order
+or subset; `win_prop(arms)` answers in the caller's order; `contrasts()`
+reads the state as `{arm: (mean, sd)}`; `set_reference` and `drop`
+re-base or fold the state without losing anything.
 
 ## What the paper calls it, and where it is in the code
 

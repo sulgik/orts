@@ -76,7 +76,7 @@ def test_decay_weakens_the_carried_precision_section_2_3():
     for _ in range(4):
         plain.update(obs)
         decayed.update(obs, decay=0.5)
-    assert decayed.contrast_sd()["A"] > plain.contrast_sd()["A"]
+    assert decayed.contrast_sd()["B"] > plain.contrast_sd()["B"]
 
 
 def test_discounted_beta_ts_matches_tempering_section_2_3():
@@ -174,3 +174,41 @@ def test_root_shims_still_import_with_a_warning():
         mod = importlib.import_module("logisticbandit")
         assert hasattr(mod, "LogisticBandit")
     assert any(issubclass(x.category, DeprecationWarning) for x in w)
+
+
+def test_canonical_order_is_stable_under_batch_order():
+    """The state's order is first-seen with the reference last, whatever order
+    a batch names the arms in, and the same counts give the same allocation."""
+    obs = {"A": [40000, 1200], "B": [40000, 1320], "C": [40000, 1160]}
+    b1, b2 = LogisticBandit(), LogisticBandit()
+    b1.update(obs); b1.update(obs)
+    b2.update(obs); b2.update({"C": obs["C"], "A": obs["A"], "B": obs["B"]})
+    assert b1.action_list == ["B", "C", "A"] == b2.action_list        # A: first arm seen, so the reference
+    assert np.allclose(b1.mu, b2.mu) and np.allclose(b1.sigma_inv, b2.sigma_inv)
+    p1 = b1.win_prop(["C", "A", "B"], draw=20000, rng=np.random.default_rng(4))
+    assert list(p1) == ["C", "A", "B"]                                  # the caller's order
+
+
+def test_reference_can_be_chosen_and_unobserved_batches_map_back():
+    b = LogisticBandit(reference="control")
+    b.update({"v1": [30000, 930], "control": [30000, 900], "v2": [30000, 990]})
+    assert b.reference == "control" and b.action_list == ["v1", "v2", "control"]
+    before = b.contrasts()
+    b.update({"v1": [30000, 940], "v2": [30000, 985]})               # the reference is not exposed
+    assert b.action_list == ["v1", "v2", "control"]                   # order unchanged
+    after = b.contrasts()
+    assert abs(after["v2"][0] - before["v2"][0]) < 0.1                # contrasts stayed coherent
+    assert after["v1"][1] < before["v1"][1]                           # and v1's contrast sharpened
+
+
+def test_drop_and_set_reference():
+    b = LogisticBandit()
+    b.update({"A": [30000, 900], "B": [30000, 990], "C": [30000, 960]})
+    p_before = b.win_prop(["B", "C"], draw=30000, rng=np.random.default_rng(8))
+    b.drop(["A"])
+    assert b.action_list == ["B", "C"] or b.action_list == ["C", "B"]
+    p_after = b.win_prop(["B", "C"], draw=30000, rng=np.random.default_rng(8))
+    for a in p_before:
+        assert abs(p_before[a] - p_after[a]) < 0.03
+    b.set_reference("B")
+    assert b.reference == "B"

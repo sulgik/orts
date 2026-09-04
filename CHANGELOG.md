@@ -11,6 +11,11 @@ LogisticBandit, TSPar, DiscountedTSPar, diagnostics`). The root modules
 `logisticbandit`, `ts` and `utils` remain as deprecated shims.
 
 **LogisticBandit.**
+- The state is kept in one canonical arm order (first seen, reference
+  last; `reference=` picks the reference), so batches may name arms in any
+  order or subset without re-expressing the state; a batch that does not
+  expose the reference is fitted against an observed arm and mapped back.
+  `contrasts()`, `level`, `set_reference()` and `drop()` read or re-base it.
 - `update` returns `True`/`False` and skips a batch with no events or no
   non-events, whose posterior is improper under the flat intercept prior.
 - `win_prop` gains `floor` (allocation floors after the power map) and an
