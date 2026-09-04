@@ -28,11 +28,23 @@ across batches they bet on different things staying fixed. On 86 real A/B
 test series the level moved about twenty-five times as much as the
 contrast, and in every one of them it moved more.
 
+![One synthetic experiment seen twice: absolute rates wobble together, the contrasts sit still](docs/rates_and_contrasts.png)
+
+*Left: three arms' observed event rates move almost in parallel because a
+common level dominates every curve. Right: the same batches in contrast
+coordinates. That is what OR-TS remembers.*
+
 ```
 Beta-TS :  p_{i,t} = p_{i,t-1}                        every arm's rate is fixed
 Full-TS :  (alpha_t, beta_t) = (alpha_{t-1}, beta_{t-1})   same bet, logistic coordinates
 OR-TS   :  beta_t = beta_{t-1},  alpha_t ~ flat         only the contrasts are fixed
 ```
+
+![Share of traffic on the best arm under a common shock: OR-TS holds it, Beta-TS and Full-TS lose it](docs/comparison_common_shock.png)
+
+*Five arms, a common shock of sd 0.30 redrawn every batch, mean of five
+runs (`examples/make_readme_figures.py`). The policies that remember the
+level keep chasing it; OR-TS never carried it.*
 
 ## Install
 
@@ -150,6 +162,7 @@ belief, which is the point.
 python examples/basic_usage.py     # Algorithm 1 one boundary at a time
 python examples/comparison.py      # OR-TS vs Beta-TS vs Full-TS under a common shock
 python examples/ab_testing.py      # warm start, then the default stopping rule
+python examples/make_readme_figures.py   # the two README figures (needs matplotlib)
 pytest -q
 ```
 
@@ -166,7 +179,8 @@ orts/                 the package
   ts.py               TSPar, DiscountedTSPar
   diagnostics.py      batch contrasts, excess variance, R, implied decay
   utils.py            the per-batch Laplace fit
-examples/             three runnable scripts
+examples/             runnable scripts, including the README figure generator
+docs/                 the README figures
 tests/                pytest suite
 archive/2020/         the 2020 preprint's synthetic runner and its outputs
 logisticbandit.py, ts.py, utils.py   deprecated import shims
