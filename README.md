@@ -1,6 +1,7 @@
 # OR-TS — Odds-Ratio Thompson Sampling
 
 [![Tests](https://github.com/sulgik/orts/actions/workflows/tests.yml/badge.svg)](https://github.com/sulgik/orts/actions/workflows/tests.yml)
+[![PyPI](https://img.shields.io/pypi/v/orts.svg)](https://pypi.org/project/orts/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -49,8 +50,8 @@ level keep chasing it; OR-TS never carried it.*
 ## Install
 
 ```bash
-pip install -e .            # from a clone; numpy and scipy are the only dependencies
-pip install -e ".[dev]"     # adds pytest
+pip install orts            # numpy and scipy are the only dependencies
+pip install -e ".[dev]"     # from a clone, with pytest
 ```
 
 ## Quick start: Algorithm 1
