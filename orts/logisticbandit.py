@@ -28,6 +28,7 @@ reference is one linear map away (``get_par``; paper, Supplement B).
 """
 
 import warnings
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -36,6 +37,32 @@ from numpy.linalg import inv, pinv
 from .utils import estimate, is_pos_semidef
 
 Obs = Dict[str, Sequence[float]]
+
+
+@dataclass
+class Allocation:
+    """The answer to one action query: what to do with the next batch.
+
+    ``arms`` are the arms the query named, in the caller's order.
+    ``shares`` is the next batch's allocation over them, after the
+    aggressiveness map and floors.  ``p_best`` is each arm's posterior
+    probability of being best and ``expected_loss`` the expected loss, in
+    log-odds units, of committing to that arm now; both are the raw
+    Thompson quantities before shaping, and both are ``nan`` for an arm the
+    state has never observed (it has no posterior; it gets the uniform
+    share).  One set of Monte Carlo draws produces all three.
+    """
+    arms: List[str]
+    shares: Dict[str, float]
+    p_best: Dict[str, float] = field(default_factory=dict)
+    expected_loss: Dict[str, float] = field(default_factory=dict)
+
+    def __getitem__(self, arm: str) -> float:
+        return self.shares[arm]
+
+    @property
+    def leader(self) -> str:
+        return max(self.arms, key=lambda a: self.shares[a])
 
 
 class LogisticBandit:
@@ -246,43 +273,58 @@ class LogisticBandit:
             mc = gen.multivariate_normal(mu[:-1], sigma, size=draw, method="svd")
         return arms, np.concatenate((mc, np.zeros((draw, 1))), axis=1)
 
-    def win_prop(self, action_list: Optional[List[str]] = None, draw: int = 100000,
-                 aggressive: float = 1.0, floor: float = 0.0,
-                 rng: Optional[np.random.Generator] = None) -> Dict[str, float]:
-        """Step A2: the next allocation as probability matching, optionally shaped.
+    def query(self, arms: Optional[Sequence[str]] = None, draw: int = 100000,
+              aggressive: float = 1.0, floor: float = 0.0,
+              rng: Optional[np.random.Generator] = None) -> Allocation:
+        """Steps A1-A2 as a query: name the arms that will be live in the next
+        batch and get their allocation, plus the quantities a stopping rule reads.
+
+        The arm set of a query need not match the state's.  Arms in the state
+        but absent from the query are simply not allocated (their contrasts
+        stay in memory); arms the state has never observed get the uniform
+        share ``1/len(arms)``, since they have no posterior, and the observed
+        arms share the rest in proportion to their winner probabilities.
 
         Parameters
         ----------
-        action_list
-            Arms to allocate over.  Arms not yet in the state get the uniform
-            share ``1/len(action_list)`` (a brand-new arm has no posterior),
-            and the observed arms share the rest in proportion to their
-            winner probabilities.
+        arms
+            The arms to allocate over, in the order the answer should use.
+            ``None`` means every arm in the state.
         draw
             Monte Carlo size ``M``.
         aggressive
-            ``gamma`` of the paper's Section 5.2: winner shares are raised to
-            this power and renormalized.  ``1`` is probability matching,
-            ``>1`` concentrates, ``<1`` flattens.
+            ``gamma`` (paper, Section 5.2): winner shares are raised to this
+            power and renormalized.  ``1`` is probability matching.
         floor
-            Minimum share per arm, applied after the power map and followed
-            by renormalization.
+            Minimum share per arm, applied after the power map; the other
+            arms are scaled to fill the remainder.
         """
+        if draw <= 0:
+            raise ValueError(f"draw must be positive, got {draw}")
         if aggressive <= 0:
             raise ValueError(f"aggressive must be positive, got {aggressive}")
         if not 0.0 <= floor < 1.0:
             raise ValueError(f"floor must be in [0, 1), got {floor}")
-        arms = list(action_list) if action_list is not None else list(self.action_list)
+        arms = list(arms) if arms is not None else list(self.action_list)
+        if len(set(arms)) != len(arms):
+            raise ValueError("arms must be distinct")
         if not arms:
-            return {}
+            return Allocation([], {}, {}, {})
         observed = [a for a in arms if a in self.action_list]
         unobserved = [a for a in arms if a not in self.action_list]
+        nan = float("nan")
         shares: Dict[str, float] = {}
+        p_best: Dict[str, float] = {a: nan for a in arms}
+        loss: Dict[str, float] = {a: nan for a in arms}
         if len(observed) == 1:
             shares[observed[0]] = 1.0 / (1 + len(unobserved))
+            p_best[observed[0]] = 1.0
+            loss[observed[0]] = 0.0
         elif observed:
             names, scores = self.contrast_draws(observed, draw, rng)
             counts = np.bincount(scores.argmax(axis=1), minlength=len(names)).astype(float)
+            raw = counts / counts.sum()
+            l = (scores.max(axis=1, keepdims=True) - scores).mean(axis=0)
             shaped = counts ** aggressive
             p = shaped / shaped.sum()
             if floor > 0.0:
@@ -290,21 +332,23 @@ class LogisticBandit:
             share = len(observed) / float(len(observed) + len(unobserved))
             for i, a in enumerate(names):
                 shares[a] = float(p[i] * share)
+                p_best[a] = float(raw[i])
+                loss[a] = float(l[i])
         for a in unobserved:
             shares[a] = 1.0 / float(len(observed) + len(unobserved))
-        return {a: shares[a] for a in arms}          # the caller's order
+        return Allocation(arms, {a: shares[a] for a in arms}, p_best, loss)
+
+    def win_prop(self, action_list: Optional[List[str]] = None, draw: int = 100000,
+                 aggressive: float = 1.0, floor: float = 0.0,
+                 rng: Optional[np.random.Generator] = None) -> Dict[str, float]:
+        """The next allocation as ``{arm: share}``; ``query(...).shares``."""
+        return self.query(action_list, draw, aggressive, floor, rng).shares
 
     # ---------------------------------------------- stopping-rule quantities
     def expected_loss(self, action_list: Optional[List[str]] = None, draw: int = 100000,
                       rng: Optional[np.random.Generator] = None) -> Dict[str, float]:
-        """``E[max_j beta_j - beta_i]`` per arm, in log-odds units.
-
-        The expected loss of committing to arm ``i`` now; with ``win_prop``
-        it is what a stopping or dropping rule reads (paper, Section 6.1).
-        """
-        names, scores = self.contrast_draws(action_list, draw, rng)
-        loss = (scores.max(axis=1, keepdims=True) - scores).mean(axis=0)
-        return {a: float(loss[i]) for i, a in enumerate(names)}
+        """``E[max_j beta_j - beta_i]`` per arm, in log-odds units; ``query(...).expected_loss``."""
+        return self.query(action_list, draw, rng=rng).expected_loss
 
     def implied_decay(self, excess_sd_beta: float) -> float:
         """``lambda = tau^2 / (v + tau^2)``: the decay a measured contrast drift implies.

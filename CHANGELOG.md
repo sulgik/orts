@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.0 (2026-09)
+
+- `LogisticBandit.query(arms, ...)` is the action: name the arms that will
+  be live in the next batch, in any order and independently of the state's
+  arm set, and receive an `Allocation` with `shares`, `p_best`,
+  `expected_loss` and `leader`, all from one set of draws. `win_prop()`
+  returns `query(...).shares`; `expected_loss()` returns
+  `query(...).expected_loss`.
+
 ## 2.0.0 (2026-09)
 
 The repository is now the reference implementation of *Odds-Ratio Thompson

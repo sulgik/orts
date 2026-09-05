@@ -13,7 +13,8 @@ batch = {"A": [30000, 300], "B": [30000, 330], "C": [30000, 290]}
 bandit.update(batch)                          # R1 fit with a fresh flat intercept, R2 keep the contrasts
 print("state carries:", bandit.get_models(), "(reference last)")
 print("contrast means vs C:", np.round(bandit.mu[:-1], 3), " level (discarded next time):", round(bandit.mu[-1], 3))
-print("next allocation:", bandit.win_prop(draw=50000, rng=rng))          # A1 draws, A2 winner shares
+q = bandit.query(["A", "B", "C"], draw=50000, rng=rng)                    # A1 draws, A2 winner shares
+print("next allocation:", q.shares, " leader:", q.leader)
 
 # Boundary 2.  The platform changed and every arm's rate halved; the contrasts did not move.
 batch2 = {"A": [30000, 150], "B": [30000, 165], "C": [30000, 145]}
@@ -23,8 +24,13 @@ print("next allocation:", bandit.win_prop(draw=50000, rng=rng))
 
 # The two controls of Section 5: decay acts on what is carried, aggressiveness on how strongly it is used.
 bandit.update(batch2, decay=0.1)                                          # forget 10% of the carried precision
-print("gamma = 2 concentrates:", bandit.win_prop(draw=50000, aggressive=2.0, rng=rng))
-print("with a 5% floor:", bandit.win_prop(draw=50000, floor=0.05, rng=rng))
+print("gamma = 2 concentrates:", bandit.query(aggressive=2.0, draw=50000, rng=rng).shares)
+print("with a 5% floor:", bandit.query(floor=0.05, draw=50000, rng=rng).shares)
 
-# Stopping-rule quantities (Section 6.1): probability of being best and expected loss in log-odds.
-print("expected loss of committing now:", {a: round(v, 4) for a, v in bandit.expected_loss(draw=50000, rng=rng).items()})
+# The query's arm set is free: drop C from the next batch and add a brand-new arm D.
+q = bandit.query(["A", "B", "D"], draw=50000, rng=rng)
+print("query over A, B, D:", q.shares, "(D has no posterior yet and gets the uniform share)")
+
+# Stopping-rule quantities (Section 6.1) come with every query.
+print("P(best):", {a: round(v, 3) for a, v in q.p_best.items()})
+print("expected loss of committing now:", {a: round(v, 4) for a, v in q.expected_loss.items()})

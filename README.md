@@ -75,37 +75,46 @@ bandit.update({"A": [30000, 300], "B": [30000, 330], "C": [30000, 290]})
 #   R1  fit the reference-coded logistic model with a fresh flat intercept
 #   R2  keep the marginal Gaussian of the contrasts (mu, S); discard the intercept
 
-allocation = bandit.win_prop(draw=100_000, rng=np.random.default_rng(0))
+q = bandit.query(["A", "B", "C"], draw=100_000, rng=np.random.default_rng(0))
 #   A1  draw contrast vectors, score the reference arm 0, find each draw's winner
 #   A2  winner shares are the next batch's allocation
-# {'A': 0.19, 'B': 0.74, 'C': 0.07}
+q.shares          # {'A': 0.19, 'B': 0.74, 'C': 0.07}   the next allocation
+q.p_best          # posterior probability that each arm is best
+q.expected_loss   # expected loss of committing to each arm now, in log-odds
+q.leader          # 'B'
 ```
 
-Repeat `update` then `win_prop` at every boundary. The state is the pair
+The action is a **query**: name the arms that will be live in the next
+batch, in any order, and get their allocation. The query's arm set need not
+match the state's. Arms left out of the query are not allocated but stay in
+memory; an arm the state has never seen gets the uniform share, since it has
+no posterior yet. `win_prop(arms)` returns just the shares.
+
+Repeat `update` then `query` at every boundary. The state is the pair
 `(bandit.mu, bandit.sigma_inv)` over `bandit.action_list`, kept in one
 canonical order: arms in the order first seen, the reference arm last (the
 first arm of the first batch, or `LogisticBandit(reference="control")`).
 The entries are the contrasts of every arm against the reference, then the
-level, which the next update replaces. Batches may name arms in any order
-or subset; `win_prop(arms)` answers in the caller's order; `contrasts()`
-reads the state as `{arm: (mean, sd)}`; `set_reference` and `drop`
-re-base or fold the state without losing anything.
+level, which the next update replaces. Batches and queries may name arms in
+any order or subset; `contrasts()` reads the state as `{arm: (mean, sd)}`;
+`set_reference` and `drop` re-base or fold the state without losing
+anything.
 
 ## What the paper calls it, and where it is in the code
 
 | paper | code |
 |---|---|
 | Algorithm 1, R1–R2 (fit, marginalize) | `LogisticBandit.update(obs)` |
-| Algorithm 1, A1 (draws) / A2 (allocation) | `contrast_draws()` / `win_prop()` |
+| Algorithm 1, A1 (draws) / A2 (allocation) | `query(arms)`, returning an `Allocation`; `win_prop()` for the shares alone |
 | Full-TS, the control with Beta-TS's memory | `update(obs, odds_ratios_only=False)` |
 | Beta-TS, the per-arm baseline | `TSPar` |
 | discounted Beta-TS, the matched forgetting baseline | `DiscountedTSPar(discount)` |
 | decay λ (Section 2.3) | `update(obs, decay=λ)` |
-| aggressiveness γ and floors (Section 5.2) | `win_prop(aggressive=γ, floor=f)` |
-| changing arm sets, new reference (Supplement B) | `get_par(arms)`, `transform(arms)`, unseen arms in `win_prop(arms)` |
+| aggressiveness γ and floors (Section 5.2) | `query(arms, aggressive=γ, floor=f)` |
+| changing arm sets, new reference (Supplement B) | any arm set in `query(arms)`; `set_reference()`, `drop()`, `get_par()` |
 | warm start from a Beta-Bernoulli service (Supplement H) | `LogisticBandit.from_beta_posteriors({arm: (a, b)})` |
 | skipped batches: no events or no non-events (Supplement A) | `update` returns `False` and leaves the state |
-| stopping and dropping quantities (Section 6.1) | `win_prop()` and `expected_loss()` |
+| stopping and dropping quantities (Section 6.1) | `query(arms).p_best` and `.expected_loss` |
 | setting λ from measured drift (Supplement H) | `implied_decay(excess_sd_beta)` |
 | diagnostics for the assumption (Sections 4.1, 5.3) | `orts.diagnostics` |
 
@@ -121,7 +130,7 @@ running decay anyway costs regret; where arms are inventory whose relative
 appeal drifts, decay is the difference between trailing and leading.
 
 **Aggressiveness** acts on how strongly the belief drives traffic.
-`win_prop(aggressive=2.0)` raises the winner shares to a power and
+`query(arms, aggressive=2.0)` raises the winner shares to a power and
 renormalizes; `floor=0.05` guarantees every arm a share afterwards. Neither
 touches the posterior.
 
@@ -150,9 +159,10 @@ tool. The lever is the cycle length, not the method.
 
 ## Stopping and dropping arms
 
-The state computes what a default rule needs: `win_prop()` gives each arm's
-posterior probability of being best, `expected_loss()` the expected loss of
-committing to it now, in log-odds units. A workable default: drop an arm
+One query computes what a default rule needs: `q.p_best` is each arm's
+posterior probability of being best and `q.expected_loss` the expected loss
+of committing to it now, in log-odds units, from the same draws as the
+shares. A workable default: drop an arm
 whose probability stays below 1% for several consecutive batches; stop when
 the leader's probability exceeds 95% and its expected loss is below what the
 business will forgo. A threshold on absolute-rate posteriors moves when the
