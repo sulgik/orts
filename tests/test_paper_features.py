@@ -212,3 +212,17 @@ def test_drop_and_set_reference():
         assert abs(p_before[a] - p_after[a]) < 0.03
     b.set_reference("B")
     assert b.reference == "B"
+
+
+def test_query_is_the_action_and_its_arm_set_is_free():
+    """A query names the arms that will be live; the state's arm set need not match."""
+    b = LogisticBandit(reference="A")
+    b.update({"A": [50000, 1500], "B": [50000, 1650], "C": [50000, 1400]})
+    q = b.query(["C", "B", "D"], draw=30000, rng=np.random.default_rng(6))   # A dropped, D never seen
+    assert q.arms == ["C", "B", "D"] and list(q.shares) == ["C", "B", "D"]
+    assert abs(sum(q.shares.values()) - 1) < 1e-9
+    assert q.shares["D"] == pytest.approx(1 / 3) and np.isnan(q.p_best["D"]) and np.isnan(q.expected_loss["D"])
+    assert q.p_best["B"] > q.p_best["C"] and q.expected_loss["B"] < q.expected_loss["C"]
+    assert q.leader == "B" and q["B"] == q.shares["B"]
+    assert b.action_list == ["B", "C", "A"]                                    # the state is untouched
+    assert b.win_prop(["C", "B", "D"], draw=30000, rng=np.random.default_rng(6)) == q.shares
