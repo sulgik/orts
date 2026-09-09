@@ -205,7 +205,8 @@ orts/                 the package
   utils.py            the per-batch Laplace fit
 examples/             runnable scripts, including the README figure generator
 notebooks/            the Colab quickstart
-docs/                 the README figures
+docs/                 the README figures and RESEARCH_PLAN.md, the
+                      pre-registration record (H1-H12) behind the paper
 tests/                pytest suite
 archive/2020/         the 2020 preprint's synthetic runner and its outputs
 logisticbandit.py, ts.py, utils.py   deprecated import shims
@@ -213,7 +214,10 @@ logisticbandit.py, ts.py, utils.py   deprecated import shims
 
 The registered simulations, dataset analyses and manuscript of the 2026
 paper live in a separate research repository; this package is the
-implementation they run.
+implementation they run. The pre-registration record those runs follow,
+with each hypothesis's prediction and failure criterion written before
+the run, is published here as `docs/RESEARCH_PLAN.md`; the paper's
+supplements cite its labels H1-H12 next to the run ids.
 
 ## Citing
 
