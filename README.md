@@ -114,9 +114,33 @@ anything.
 | changing arm sets, new reference (Supplement B) | any arm set in `query(arms)`; `set_reference()`, `drop()`, `get_par()` |
 | warm start from a Beta-Bernoulli service (Supplement H) | `LogisticBandit.from_beta_posteriors({arm: (a, b)})` |
 | skipped batches: no events or no non-events (Supplement A) | `update` returns `False` and leaves the state |
+| first-fit check and start-up allocation (Algorithm 1) | before any fit, `query` returns the uniform allocation; a first batch with a separated arm is not fitted under the flat prior |
+| symmetric proper initialization for sparse data (Supplement A) | `LogisticBandit(init_scale=tau)` |
+| proper prior for a separated new arm (Supplement C) | `LogisticBandit(new_arm_scale=s)` |
 | stopping and dropping quantities (Section 6.1) | `query(arms).p_best` and `.expected_loss` |
 | setting λ from measured drift (Supplement H) | `implied_decay(excess_sd_beta)` |
 | diagnostics for the assumption (Sections 4.1, 5.3) | `orts.diagnostics` |
+
+## Zero and complete counts
+
+Under the flat intercept prior a batch with no events, or with no
+non-events, has an improper posterior: `update` skips it, returns `False`,
+and leaves the state as it was. Do not pool a skipped batch's counts into
+the next batch as though they shared one intercept. A *first* fit under the
+flat contrast prior further needs every arm to have both events and
+non-events; if an arm is separated, no state is formed and `query` keeps
+returning the uniform start-up allocation until a batch identifies every
+arm. Once a state exists, a later batch with a separated arm is fitted,
+because the carried prior identifies it.
+
+For sparse data the paper's symmetric proper initialization is an option
+chosen before outcomes are seen: `LogisticBandit(init_scale=tau)` gives the
+arm effects an exchangeable `N(0, tau^2)` prior, so every pairwise
+difference has prior variance `2 tau^2` and every arm prior winner
+probability `1/K`, and the first fit goes through with zero cells. Its cost
+is the prespecified scale `tau`. Likewise `new_arm_scale=s` gives an arm that
+joins later a proper `N(0, s^2)` contrast prior instead of a flat one. Both
+are explicit options, not defaults; the paper's basic specification is flat.
 
 ## The two controls
 

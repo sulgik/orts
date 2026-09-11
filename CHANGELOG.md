@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.2.0 (2026-09)
+
+The zero-count rules of the paper's Algorithm 1 and Supplements A and C.
+
+- First-fit check: under the flat contrast prior a first fit requires every
+  arm to have both events and non-events; a separated first batch forms no
+  state and `update` returns `False`. Until a fit has completed, `query`
+  returns the uniform start-up allocation (`p_best` and `expected_loss` are
+  `nan`) and `bandit.fitted` is `False`.
+- `LogisticBandit(init_scale=tau)`: the symmetric proper initialization,
+  `S_0 = tau^-2 (I - 11'/K)` on the contrasts, which fits a first batch
+  with zero or complete cells.
+- `LogisticBandit(new_arm_scale=s)`: a proper `N(0, s^2)` contrast prior for
+  an arm that joins after the first fit.
+- The batch-level skip (no events or no non-events) is unchanged.
+
 ## 2.1.0 (2026-09)
 
 - `LogisticBandit.query(arms, ...)` is the action: name the arms that will

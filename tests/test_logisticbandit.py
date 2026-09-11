@@ -310,24 +310,26 @@ class TestLogisticBanditEdgeCases:
         # arm_1 might not be in models or have zero contribution
 
     def test_perfect_success(self):
-        """Test with 100% success rate."""
+        """A first batch in which one arm has 100% success is separated: under
+        the flat prior it is not fitted (paper, first-fit check), and the
+        query returns the start-up allocation.  With the symmetric proper
+        initialization it is fitted and the separated arm leads."""
         bandit = LogisticBandit()
         obs = {"arm_1": [100, 100], "arm_2": [100, 50]}
-        bandit.update(obs)
-
-        result = bandit.win_prop(draw=10000)
-        # arm_1 should have very high probability
-        assert result["arm_1"] > 0.9
+        assert bandit.update(obs) is False
+        assert bandit.win_prop(["arm_1", "arm_2"], draw=1000) == {"arm_1": 0.5, "arm_2": 0.5}
+        proper = LogisticBandit(init_scale=1.0)
+        assert proper.update(obs) is True
+        assert proper.win_prop(draw=10000)["arm_1"] > 0.9
 
     def test_zero_success(self):
-        """Test with 0% success rate."""
+        """Same as above with an arm at 0% success."""
         bandit = LogisticBandit()
         obs = {"arm_1": [100, 0], "arm_2": [100, 50]}
-        bandit.update(obs)
-
-        result = bandit.win_prop(draw=10000)
-        # arm_2 should have very high probability
-        assert result["arm_2"] > 0.9
+        assert bandit.update(obs) is False
+        proper = LogisticBandit(init_scale=1.0)
+        assert proper.update(obs) is True
+        assert proper.win_prop(draw=10000)["arm_2"] > 0.9
 
     def test_large_sample_sizes(self):
         """Test with large sample sizes."""

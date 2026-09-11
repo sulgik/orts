@@ -37,7 +37,7 @@ def is_pos_semidef(x: np.ndarray, tol: float = 0.0) -> bool:
 
 
 def estimate(prior: Prior, obs: Sequence[Sequence[float]], indexes: Sequence[int],
-             discount: float = 0.0) -> Tuple[np.ndarray, np.ndarray]:
+             discount: float = 0.0, prior_covers_all: bool = False) -> Tuple[np.ndarray, np.ndarray]:
     """Fit one batch and return the Laplace state ``(mu_hat, sigma_inv)``.
 
     Parameters
@@ -54,12 +54,33 @@ def estimate(prior: Prior, obs: Sequence[Sequence[float]], indexes: Sequence[int
         vector as new arms, carried-but-unobserved arms, observed arms.
     discount
         The decay ``lambda``; the prior precision enters scaled by ``1 - lambda``.
+    prior_covers_all
+        If True, ``prior`` spans the whole fit vector (new arms included,
+        with zero precision where they are flat) rather than only the
+        carried coordinates ``indexes[0]:``.
     """
+    if prior_covers_all and prior[0] is not None:
+        prior = (np.asarray(prior[0], dtype=float), np.asarray(prior[1], dtype=float))
+        return _estimate_full(prior, obs, indexes, discount)
     target_fn, gradient_fn = _build_fns(prior, obs, indexes, discount)
     initial_mu = _compute_initial(prior, obs, indexes)
     result = minimize(target_fn, initial_mu, jac=gradient_fn, method="Newton-CG")
     mu_hat = result.x
     sigma_inv = _estimate_sigma_inv(mu_hat, prior, obs, indexes, discount)
+    return mu_hat, sigma_inv
+
+
+def _estimate_full(prior, obs, indexes, discount):
+    """``estimate`` with a prior over every coordinate.  The fit layout is the
+    same (new, unobserved, observed, reference last); only the prior's
+    footprint differs, so the helpers are called with a zero offset."""
+    n_new, n_unobs_end, K = indexes
+    layout = [0, n_unobs_end, K]                 # the prior starts at coordinate 0
+    target_fn, gradient_fn = _build_fns(prior, obs, layout, discount, n_new=n_new)
+    initial_mu = _compute_initial(prior, obs, indexes)
+    result = minimize(target_fn, initial_mu, jac=gradient_fn, method="Newton-CG")
+    mu_hat = result.x
+    sigma_inv = _estimate_sigma_inv(mu_hat, prior, obs, layout, discount, n_new=n_new)
     return mu_hat, sigma_inv
 
 
@@ -70,20 +91,21 @@ def _compute_initial(prior: Prior, obs, indexes) -> np.ndarray:
     for i, j in enumerate(index_obs[:-1]):
         p = np.clip(float(obs[i][1]) / float(obs[i][0]), 1e-3, 1 - 1e-3)
         initial[j] = np.log(p / (1.0 - p)) - np.log(p_ref / (1.0 - p_ref))
-    if prior[0] is not None:
-        initial[indexes[0]:] = prior[0]
+    n_carried = indexes[2] - indexes[0]
+    if prior[0] is not None and n_carried > 0:
+        initial[indexes[0]:] = np.asarray(prior[0])[-n_carried:]
     return initial
 
 
-def _estimate_sigma_inv(mu_hat, prior: Prior, obs, indexes, discount) -> np.ndarray:
+def _estimate_sigma_inv(mu_hat, prior: Prior, obs, indexes, discount, n_new=None) -> np.ndarray:
     """Negative Hessian at the mode: discounted prior precision plus the
     binomial information ``X^T W X`` of Supplement A."""
     K = indexes[2]
     sigma_inv_prior = np.zeros((K, K))
     if prior[1] is not None:
         sigma_inv_prior[indexes[0]:, indexes[0]:] = prior[1]
-
-    index_obs = list(range(indexes[0])) + list(range(indexes[1], indexes[2]))
+    n_new = indexes[0] if n_new is None else n_new
+    index_obs = list(range(n_new)) + list(range(indexes[1], indexes[2]))
     p = np.array([logistic(mu + mu_hat[-1]) for mu in mu_hat[index_obs][:-1]])
     p_ref = logistic(mu_hat[-1])
     total_cnt = np.array([float(i[0]) for i in obs[:-1]])
@@ -100,12 +122,13 @@ def _estimate_sigma_inv(mu_hat, prior: Prior, obs, indexes, discount) -> np.ndar
     return (1.0 - discount) * sigma_inv_prior + info
 
 
-def _build_fns(prior: Prior, obs, indexes, discount) -> Tuple[Callable, Callable]:
+def _build_fns(prior: Prior, obs, indexes, discount, n_new=None) -> Tuple[Callable, Callable]:
     total_cnt = np.array([float(i[0]) for i in obs])
     success_cnt = np.array([float(i[1]) for i in obs])
     total_number = float(np.sum(total_cnt))
+    n_new = indexes[0] if n_new is None else n_new
     index_prior = list(range(indexes[0], indexes[2]))
-    index_obs = list(range(indexes[0])) + list(range(indexes[1], indexes[2]))
+    index_obs = list(range(n_new)) + list(range(indexes[1], indexes[2]))
     has_prior = prior[0] is not None and len(index_prior) > 0
 
     def negative_log_posterior(w: np.ndarray) -> float:
