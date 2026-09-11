@@ -80,6 +80,21 @@ class LogisticBandit:
         control).  It takes effect when that arm is first observed; until
         then, and by default, the first arm of the first batch is the
         reference.
+    init_scale
+        ``None`` (default) is the paper's basic specification: a flat
+        contrast prior, under which the first fit requires every arm in the
+        batch to have both events and non-events.  A positive ``tau`` selects
+        the symmetric proper initialization of Supplement A, exchangeable arm
+        effects ``N(0, tau^2)``, which gives every pairwise difference prior
+        variance ``2 tau^2`` and every arm prior winner probability ``1/K``.
+        It permits the first fit when individual arms have zero or complete
+        counts, at the cost of a prespecified effect scale.  Choose it before
+        observing outcomes; the paper says not to switch priors after
+        separation is seen.
+    new_arm_scale
+        Prior sd for the contrast of an arm that joins after the first fit.
+        ``None`` (default) is flat; a positive value is a proper ``N(0, s^2)``
+        prior, an explicit option for arms whose first batch is separated.
 
     Examples
     --------
@@ -94,7 +109,13 @@ class LogisticBandit:
     def __init__(self, mu: Optional[np.ndarray] = None,
                  sigma_inv: Optional[np.ndarray] = None,
                  action_list: Optional[List[str]] = None,
-                 reference: Optional[str] = None) -> None:
+                 reference: Optional[str] = None,
+                 init_scale: Optional[float] = None,
+                 new_arm_scale: Optional[float] = None) -> None:
+        if init_scale is not None and init_scale <= 0:
+            raise ValueError("init_scale must be positive")
+        if new_arm_scale is not None and new_arm_scale <= 0:
+            raise ValueError("new_arm_scale must be positive")
         self.mu = np.array(mu, dtype=float) if mu is not None else np.array([])
         self.sigma_inv = (np.array(sigma_inv, dtype=float) if sigma_inv is not None
                           else np.empty((0, 0)))
@@ -102,6 +123,11 @@ class LogisticBandit:
         # the arm to use as the canonical reference once it is first seen;
         # without it, the first arm of the first batch is the reference
         self._preferred_reference = reference
+        self.init_scale = init_scale
+        self.new_arm_scale = new_arm_scale
+        # True once a fit has completed; before that the state is improper
+        # (or absent) and queries return the start-up allocation
+        self.fitted = len(self.action_list) > 0 and mu is not None
 
     # ------------------------------------------------------------------ state
     def get_models(self) -> List[str]:
@@ -131,8 +157,11 @@ class LogisticBandit:
     def transform(self, action_list: List[str]) -> None:
         """Re-express the state in place for a subset or a new reference."""
         mu, sigma_inv = self.get_par(action_list)
+        fitted = self.fitted
         self.__init__(mu=mu, sigma_inv=sigma_inv, action_list=action_list,
-                      reference=self._preferred_reference)
+                      reference=self._preferred_reference, init_scale=self.init_scale,
+                      new_arm_scale=self.new_arm_scale)
+        self.fitted = fitted
 
     def covariance(self, action_list: Optional[List[str]] = None) -> np.ndarray:
         """Posterior covariance over ``action_list``'s coordinates."""
@@ -168,10 +197,16 @@ class LogisticBandit:
         Returns
         -------
         bool
-            ``True`` if the state changed.  ``False`` if the batch was skipped:
-            under the flat intercept prior a batch with no events, or with no
-            non-events, has an improper posterior and is skipped with the state
-            left as it was (paper, Supplement A).
+            ``True`` if the state changed.  ``False`` if the batch was skipped
+            and the state left as it was.  Two rules skip (paper, Algorithm 1
+            and Supplement A).  Under the flat intercept prior a batch with no
+            events, or with no non-events, has an improper posterior.  And a
+            *first* fit under the flat contrast prior requires every arm in
+            the batch to have both events and non-events; if that fails no
+            state is formed, and ``query`` keeps returning the start-up
+            allocation.  The paper says not to pool a skipped batch with later
+            counts as though they shared one intercept, so callers should
+            not add its counts to the next batch.
         """
         _validate(obs)
         if not 0.0 <= decay <= 1.0:
@@ -184,6 +219,12 @@ class LogisticBandit:
         non_events = sum(v[0] - v[1] for v in obs_valid.values())
         if events == 0 or non_events == 0:
             return False
+        first_fit = not self.fitted
+        if first_fit and self.init_scale is None:
+            # first-fit check: a flat contrast prior needs every arm to be
+            # identified from this batch alone
+            if any(v[1] == 0 or v[1] == v[0] for v in obs_valid.values()):
+                return False
 
         # ---- canonical order after this batch: known non-reference arms in
         # first-seen order, then the new arms, then the reference last
@@ -235,9 +276,29 @@ class LogisticBandit:
             # fit reference's level, which starts flat
             prior = (np.append(prior[0], 0.0), _pad_flat(prior[1]))
 
+        # ---- prior over the full fit vector: new contrasts first
+        K = len(fit_list)
+        if first_fit and self.init_scale is not None:
+            # symmetric proper initialization (Supplement A): S_0 = tau^-2 (I - 11'/K)
+            # on the K-1 contrasts, zero precision on the level
+            mu_full = np.zeros(K)
+            S_full = np.zeros((K, K))
+            S_full[:-1, :-1] = (np.eye(K - 1) - np.ones((K - 1, K - 1)) / K) / self.init_scale ** 2
+        else:
+            mu_full = np.zeros(K)
+            S_full = np.zeros((K, K))
+            if prior[0] is not None:
+                mu_full[n_new:] = prior[0]
+                S_full[n_new:, n_new:] = prior[1]
+            if n_new and self.new_arm_scale is not None and not first_fit:
+                S_full[:n_new, :n_new] = np.eye(n_new) / self.new_arm_scale ** 2
+        prior_full = (mu_full, S_full)
+
         obs_list = [obs_valid[a] for a in new_fit + observed_known + [fit_ref]]
-        indexes = [n_new, n_new + len(unobserved), len(fit_list)]
-        mu, sigma_inv = estimate(prior, obs_list, indexes, discount=decay)
+        indexes = [n_new, n_new + len(unobserved), K]
+        mu, sigma_inv = estimate(prior_full, obs_list, indexes, discount=decay,
+                                 prior_covers_all=True)
+        self.fitted = True
 
         # ---- back to the canonical order
         self.mu, self.sigma_inv, self.action_list = mu, sigma_inv, fit_list
@@ -310,6 +371,11 @@ class LogisticBandit:
             raise ValueError("arms must be distinct")
         if not arms:
             return Allocation([], {}, {}, {})
+        if not self.fitted:
+            # no proper state yet: the start-up allocation (paper, Algorithm 1)
+            nan = float("nan")
+            return Allocation(arms, {a: 1.0 / len(arms) for a in arms},
+                              {a: nan for a in arms}, {a: nan for a in arms})
         observed = [a for a in arms if a in self.action_list]
         unobserved = [a for a in arms if a not in self.action_list]
         nan = float("nan")
@@ -387,7 +453,8 @@ class LogisticBandit:
         re-introduced later by observing them, with a flat contrast prior."""
         keep = [a for a in self.action_list if a not in set(arms)]
         if not keep:
-            self.__init__(reference=self._preferred_reference)
+            self.__init__(reference=self._preferred_reference, init_scale=self.init_scale,
+                          new_arm_scale=self.new_arm_scale)
             return
         ref = self.reference if self.reference in keep else keep[-1]
         self.transform([a for a in keep if a != ref] + [ref])

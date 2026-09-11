@@ -226,3 +226,47 @@ def test_query_is_the_action_and_its_arm_set_is_free():
     assert q.leader == "B" and q["B"] == q.shares["B"]
     assert b.action_list == ["B", "C", "A"]                                    # the state is untouched
     assert b.win_prop(["C", "B", "D"], draw=30000, rng=np.random.default_rng(6)) == q.shares
+
+
+def test_first_fit_check_and_start_up_allocation_algorithm_1():
+    """Before any fit the query is the start-up allocation; a first batch with
+    a separated arm is not fitted under the flat prior; a later batch with a
+    separated arm is fitted, because the carried prior identifies it."""
+    b = LogisticBandit(reference="A")
+    q = b.query(["A", "B", "C"], draw=1000)
+    assert q.shares == {"A": 1 / 3, "B": 1 / 3, "C": 1 / 3} and all(np.isnan(v) for v in q.p_best.values())
+    assert b.update({"A": [1000, 30], "B": [1000, 0], "C": [1000, 25]}) is False    # B separated: no state formed
+    assert b.action_list == [] and not b.fitted
+    assert b.update({"A": [1000, 30], "B": [1000, 20], "C": [1000, 25]}) is True
+    assert b.update({"A": [1000, 30], "B": [1000, 0], "C": [1000, 25]}) is True     # now B is identified by its prior
+    assert b.contrasts()["B"][0] < b.contrasts()["C"][0]
+
+
+def test_symmetric_proper_initialization_supplement_a():
+    """S_0 = tau^-2 (I - 11'/K): every pairwise difference has prior variance
+    2 tau^2 and every arm prior winner probability 1/K; it fits a first batch
+    with zero cells."""
+    tau, K = 0.5, 4
+    b = LogisticBandit(init_scale=tau)
+    S0 = (np.eye(K - 1) - np.ones((K - 1, K - 1)) / K) / tau ** 2
+    Sigma0 = np.linalg.inv(S0)
+    assert np.allclose(Sigma0, tau ** 2 * (np.eye(K - 1) + np.ones((K - 1, K - 1))))
+    # reference-vs-arm and arm-vs-arm differences share the variance 2 tau^2
+    assert np.isclose(Sigma0[0, 0], 2 * tau ** 2)
+    assert np.isclose(Sigma0[0, 0] + Sigma0[1, 1] - 2 * Sigma0[0, 1], 2 * tau ** 2)
+    assert b.update({"A": [200, 0], "B": [200, 5], "C": [200, 4], "D": [200, 6]}) is True
+    p = b.win_prop(draw=20000, rng=np.random.default_rng(3))
+    assert p["A"] < min(p["B"], p["C"], p["D"])
+
+
+def test_proper_prior_for_a_separated_new_arm_supplement_c():
+    """A new arm whose first batch is separated: flat by default, so its
+    contrast is only as identified as the batch allows; with new_arm_scale
+    it gets a proper N(0, s^2) prior and a finite, shrunk contrast."""
+    obs = {"A": [2000, 60], "B": [2000, 66]}
+    flat, proper = LogisticBandit(reference="A"), LogisticBandit(reference="A", new_arm_scale=1.0)
+    for b in (flat, proper):
+        b.update(obs)
+        assert b.update({"A": [2000, 60], "B": [2000, 66], "D": [2000, 0]}) is True
+    assert abs(proper.contrasts()["D"][0]) < abs(flat.contrasts()["D"][0])
+    assert proper.contrasts()["D"][1] < flat.contrasts()["D"][1]
