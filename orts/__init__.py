@@ -14,11 +14,11 @@ LogisticBandit   OR-TS (default) and Full-TS: a reference-coded logistic model
                  carried across batches is the joint posterior of the log-odds
                  contrasts.  Decay, aggressiveness, allocation floors, changing
                  arm sets, warm starts and stopping-rule quantities are methods
-                 or arguments on this class.  ``query(arms)`` is the action:
+                 or arguments on this class.  ``allocate(arms)`` is the action:
                  name the arms that will be live next and get an Allocation.
 priors           The symmetric proper contrast prior the default starts from,
                  and Supplement B's augmentation for an arm that joins later.
-Allocation       The answer to a query: shares, P(best), expected loss.
+Allocation       The answer to one action step: shares, P(best), expected loss.
 TSPar            Beta-Bernoulli Thompson sampling, the per-arm baseline.
 DiscountedTSPar  Beta-Bernoulli with geometric count discounting, the
                  forgetting baseline matched to OR-TS's decay.

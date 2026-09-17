@@ -75,7 +75,7 @@ bandit.update({"A": [30000, 300], "B": [30000, 330], "C": [30000, 290]})
 #   R1  fit the reference-coded logistic model with a fresh flat intercept
 #   R2  keep the marginal Gaussian of the contrasts (mu, S); discard the intercept
 
-q = bandit.query(["A", "B", "C"], draw=100_000, rng=np.random.default_rng(0))
+q = bandit.allocate(["A", "B", "C"], draw=100_000, rng=np.random.default_rng(0))
 #   A1  draw contrast vectors, score the reference arm 0, find each draw's winner
 #   A2  winner shares are the next batch's allocation
 q.shares          # {'A': 0.11, 'B': 0.85, 'C': 0.04}   the next allocation
@@ -84,13 +84,14 @@ q.expected_loss   # expected loss of committing to each arm now, in log-odds
 q.leader          # 'B'
 ```
 
-The action is a **query**: name the arms that will be live in the next
-batch, in any order, and get their allocation. The query's arm set need not
-match the state's. Arms left out of the query are not allocated but stay in
+The action is **`allocate`**: name the arms that will be live in the next
+batch, in any order, and get their allocation. A1 queries the state — the
+Thompson draw — and A2 turns the winner frequencies into the shares. The arm
+set need not match the state's. Arms left out are not allocated but stay in
 memory; an arm the state has never seen gets the uniform share, since it has
 no posterior yet. `win_prop(arms)` returns just the shares.
 
-Repeat `update` then `query` at every boundary. The state is the pair
+Repeat `update` then `allocate` at every boundary. The state is the pair
 `(bandit.mu, bandit.sigma_inv)` over `bandit.action_list`, kept in one
 canonical order: arms in the order first seen, the reference arm last (the
 first arm of the first batch, or `LogisticBandit(reference="control")`).
@@ -105,23 +106,23 @@ anything.
 | paper | code |
 |---|---|
 | Algorithm 1, R1–R2 (fit, marginalize) | `LogisticBandit.update(obs)` |
-| Algorithm 1, A1 (draws) / A2 (allocation) | `query(arms)`, returning an `Allocation`; `win_prop()` for the shares alone |
+| Algorithm 1, A1 (draws) / A2 (allocation) | `allocate(arms)`, returning an `Allocation`; `contrast_draws()` for A1 alone, `win_prop()` for the shares alone |
 | Full-TS, the control with Beta-TS's memory | `update(obs, odds_ratios_only=False)` |
 | Beta-TS, the per-arm baseline | `TSPar` |
 | discounted Beta-TS, the matched forgetting baseline | `DiscountedTSPar(discount)` |
 | symmetric proper contrast prior, the default (Algorithm 1, Supplement A) | `LogisticBandit()`, with `arm_effect_prior_sd=tau` to move τ |
 | the historical flat option (Supplement A) | `LogisticBandit(contrast_prior="flat")` |
 | decay λ (Section 5.1) | `update(obs, decay=λ)` |
-| aggressiveness γ (Section 5.2) and floors (Supplement G) | `query(arms, aggressive=γ, floor=f)` |
-| changing arm sets (Section 6.1), the transformations (Supplement B) | any arm set in `query(arms)`; `set_reference()`, `drop()`, `get_par()` |
+| aggressiveness γ (Section 5.2) and floors (Supplement G) | `allocate(arms, aggressive=γ, floor=f)` |
+| changing arm sets (Section 6.1), the transformations (Supplement B) | any arm set in `allocate(arms)`; `set_reference()`, `drop()`, `get_par()` |
 | symmetric augmentation of a new arm (Supplement B) | automatic in `update`; the newcomer joins the joint state |
 | independent experiment groups (Supplement B) | automatic in `update`; `groups()` lists them, and a batch joining two raises |
 | the bridge: a shared arm carries an indirect comparison (Section 6.1, Supplement B) | automatic; the newcomer joins the group by augmentation |
-| the new-arm traffic rule, `1/\|A\|` each (Section 6.1, Supplement B) | `query` gives it to an arm with no posterior, and to each group it spans |
+| the new-arm traffic rule, `1/\|A\|` each (Section 6.1, Supplement B) | `allocate` gives it to an arm with no posterior, and to each group it spans |
 | warm start from a Beta-Bernoulli service (Supplement D, algebra in G) | `LogisticBandit.from_beta_posteriors({arm: (a, b)})` |
 | skipped batches: no events or no non-events (Algorithm 1, Supplement A) | `update` returns `False` and leaves the state |
-| start-up allocation (Algorithm 1) | before any fit, `query` returns the uniform allocation |
-| stopping and dropping quantities (Supplement G) | `query(arms).p_best` and `.expected_loss` |
+| start-up allocation (Algorithm 1) | before any fit, `allocate` returns the uniform allocation |
+| stopping and dropping quantities (Supplement G) | `allocate(arms).p_best` and `.expected_loss` |
 | relating λ to a transition model (Supplement G) | `implied_decay(excess_sd_beta)` |
 | diagnostics for the assumption (Section 4.2, Supplement E) | `orts.diagnostics` |
 
@@ -169,7 +170,7 @@ running decay anyway costs regret; where arms are inventory whose relative
 appeal drifts, decay is the difference between trailing and leading.
 
 **Aggressiveness** acts on how strongly the belief drives traffic.
-It is the control in action. `query(arms, aggressive=2.0)` raises the winner
+It is the control in action. `allocate(arms, aggressive=2.0)` raises the winner
 shares to a power and renormalizes; `floor=0.05` guarantees every arm a share
 afterwards, which is the only way to guarantee one, since a zero winner
 frequency stays zero under the power map. Neither touches the posterior.
@@ -211,7 +212,7 @@ method.
 
 ## Stopping and dropping arms
 
-One query computes what a default rule needs: `q.p_best` is each arm's
+One `allocate` computes what a default rule needs: `q.p_best` is each arm's
 posterior probability of being best and `q.expected_loss` the expected loss
 of committing to it now, in log-odds units, from the same draws as the
 shares. A workable default: drop an arm

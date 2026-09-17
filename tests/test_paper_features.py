@@ -219,11 +219,11 @@ def test_drop_and_set_reference():
     assert b.reference == "B"
 
 
-def test_query_is_the_action_and_its_arm_set_is_free():
-    """A query names the arms that will be live; the state's arm set need not match."""
+def test_allocate_is_the_action_and_its_arm_set_is_free():
+    """`allocate` names the arms that will be live; the state's arm set need not match."""
     b = LogisticBandit(reference="A")
     b.update({"A": [50000, 1500], "B": [50000, 1650], "C": [50000, 1400]})
-    q = b.query(["C", "B", "D"], draw=30000, rng=np.random.default_rng(6))   # A dropped, D never seen
+    q = b.allocate(["C", "B", "D"], draw=30000, rng=np.random.default_rng(6))   # A dropped, D never seen
     assert q.arms == ["C", "B", "D"] and list(q.shares) == ["C", "B", "D"]
     assert abs(sum(q.shares.values()) - 1) < 1e-9
     assert q.shares["D"] == pytest.approx(1 / 3) and np.isnan(q.p_best["D"]) and np.isnan(q.expected_loss["D"])
@@ -234,12 +234,12 @@ def test_query_is_the_action_and_its_arm_set_is_free():
 
 
 def test_first_fit_check_and_start_up_allocation_algorithm_1():
-    """Before any fit the query is the start-up allocation.  Under the default
+    """Before any fit `allocate` returns the start-up allocation.  Under the default
     symmetric prior a separated first batch is fitted; under the explicit flat
     option it has no finite fit and raises, and once a state exists a later
     separated batch is fitted because the carried prior identifies it."""
     b = LogisticBandit(reference="A")
-    q = b.query(["A", "B", "C"], draw=1000)
+    q = b.allocate(["A", "B", "C"], draw=1000)
     assert q.shares == {"A": 1 / 3, "B": 1 / 3, "C": 1 / 3} and all(np.isnan(v) for v in q.p_best.values())
 
     flat = LogisticBandit(reference="A", contrast_prior="flat")
@@ -323,13 +323,13 @@ def test_disconnected_batch_starts_its_own_group_supplement_b():
     assert b.update({"C": [10000, 350], "D": [10000, 300]}) is True
     assert [sorted(g) for g in b.groups()] == [["A", "B"], ["C", "D"]]
     # each group is a posterior of its own; neither knows the other's arms
-    assert abs(sum(b.query(["A", "B"], draw=20000, rng=np.random.default_rng(0)
+    assert abs(sum(b.allocate(["A", "B"], draw=20000, rng=np.random.default_rng(0)
                            ).shares.values()) - 1) < 1e-9
-    # a query may span both: Supplement B's new-arm rule read for a group, so
+    # one call may span both: Supplement B's new-arm rule read for a group, so
     # each group takes traffic in proportion to its size and allocates inside
     # itself.  No comparison between the groups is invented, so no ranking is
     # reported across them.
-    q = b.query(["A", "B", "C", "D"], draw=20000, rng=np.random.default_rng(0))
+    q = b.allocate(["A", "B", "C", "D"], draw=20000, rng=np.random.default_rng(0))
     assert abs(sum(q.shares.values()) - 1) < 1e-9
     assert abs(q.shares["A"] + q.shares["B"] - 0.5) < 1e-9      # group {A, B}
     assert abs(q.shares["C"] + q.shares["D"] - 0.5) < 1e-9      # group {C, D}
@@ -337,7 +337,7 @@ def test_disconnected_batch_starts_its_own_group_supplement_b():
     assert all(np.isnan(v) for v in q.p_best.values())
     assert all(np.isnan(v) for v in q.expected_loss.values())
     # within one group the ranking is reported as usual
-    assert not np.isnan(b.query(["A", "B"], draw=20000,
+    assert not np.isnan(b.allocate(["A", "B"], draw=20000,
                                 rng=np.random.default_rng(0)).p_best["B"])
 
 
@@ -346,7 +346,7 @@ def test_group_rule_reduces_to_the_paper_s_new_arm_rule_supplement_b():
     uniform share 1/|A|, with the observed arms scaled into the remainder."""
     b = LogisticBandit()
     b.update({"A": [50000, 1500], "B": [50000, 1650]})
-    q = b.query(["A", "B", "E"], draw=20000, rng=np.random.default_rng(2))
+    q = b.allocate(["A", "B", "E"], draw=20000, rng=np.random.default_rng(2))
     assert abs(q.shares["E"] - 1 / 3) < 1e-12
     assert abs(q.shares["A"] + q.shares["B"] - 2 / 3) < 1e-9
     assert np.isnan(q.p_best["E"]) and not np.isnan(q.p_best["B"])   # one group: ranked
@@ -372,7 +372,7 @@ def test_the_bridge_keeps_one_group_supplement_b():
     # the indirect route carries both batches' uncertainty
     assert sd_ac > sd_ab and sd_ac > sd_bc
     assert abs(sd_ac - np.hypot(sd_ab, sd_bc)) < 1e-4
-    q = b.query(["A", "B", "C"], draw=20000, rng=np.random.default_rng(0))
+    q = b.allocate(["A", "B", "C"], draw=20000, rng=np.random.default_rng(0))
     assert not np.isnan(q.p_best["C"]) and abs(sum(q.shares.values()) - 1) < 1e-9
 
 
@@ -388,3 +388,14 @@ def test_a_batch_joining_two_separate_groups_is_refused_supplement_b():
         b.update({"B": [10000, 330], "C": [10000, 350]})
     # the refusal leaves both states exactly as they were
     assert [sorted(g) for g in b.groups()] == [["A", "B"], ["C", "D"]]
+
+
+def test_query_still_works_as_a_deprecated_alias_of_allocate():
+    """`query` was the 2.1-2.2 spelling; it forwards, with a warning."""
+    b = LogisticBandit()
+    b.update({"A": [50000, 1500], "B": [50000, 1650]})
+    with pytest.warns(DeprecationWarning, match="query is deprecated"):
+        old = b.query(["A", "B"], draw=20000, rng=np.random.default_rng(4))
+    new = b.allocate(["A", "B"], draw=20000, rng=np.random.default_rng(4))
+    assert old.shares == new.shares and old.p_best == new.p_best
+    assert old.leader == new.leader

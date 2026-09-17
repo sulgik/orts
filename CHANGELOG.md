@@ -31,6 +31,10 @@ pass `contrast_prior="flat"`.
   and only events, or only non-events, now raises `RuntimeError`: that fit
   has no finite mode, and 2.2 skipped the batch silently. The batch-level
   skip — no events or no non-events at all — still returns `False`.
+- `query` is renamed `allocate`: A2 is "Allocate the next batch" and an
+  `Allocation` is what comes back, whereas only A1 is the Thompson draw and
+  `aggressive != 1` is not Thompson sampling at all. `contrast_draws` still
+  exposes A1 on its own. `query` keeps working as a deprecated alias.
 - Paper cross-references throughout the package, examples, notebook and
   README updated to the current manuscript: decay is Section 5.1, the
   diagnostics Section 4.2, changing arm sets Section 6.1, the warm start
@@ -52,15 +56,15 @@ pass `contrast_prior="flat"`.
   states that were initialized independently, each with a contrast prior
   centred on its own arm set, is not a construction the paper gives, so the
   batch is refused rather than fitted on an invented one.
-- A query may span groups: Supplement B's new-arm rule, read for a group
+- An `allocate` may span groups: Supplement B's new-arm rule, read for a group
   rather than a single arm, gives each group traffic in proportion to its
   size and lets it allocate inside itself by its own winner probabilities.
   An arm with no posterior is a group of one, which is the rule exactly as
-  the paper states it, so a query over one group and some brand-new arms
+  the paper states it, so a call over one group and some brand-new arms
   behaves as before. Because "best" is defined only among arms a batch has
-  compared, `p_best` and `expected_loss` are `nan` throughout a query that
+  compared, `p_best` and `expected_loss` are `nan` throughout a call that
   spans groups, so a stopping rule cannot read a ranking across them.
-  `query()` with no arms allocates over every arm held. The single-state
+  `allocate()` with no arms covers every arm held. The single-state
   attributes (`mu`, `sigma_inv`, `action_list`, `contrasts()`, ...) report
   the primary group, which is the whole state in the usual one-group case.
 

@@ -31,7 +31,7 @@ for t in range(1, 41):
         p = truth[a] * np.exp(level_shift) / (1 - truth[a] + truth[a] * np.exp(level_shift))
         obs[a] = [n, int(rng.binomial(n, p))]
     bandit.update(obs, remove_not_observed=True)
-    q = bandit.query(active, draw=20000, rng=rng)
+    q = bandit.allocate(active, draw=20000, rng=rng)
     alloc, loss, leader = q.shares, q.expected_loss, q.leader
     for a in active:
         below[a] = below[a] + 1 if alloc[a] < DROP_BELOW else 0
@@ -40,7 +40,7 @@ for t in range(1, 41):
         active.remove(a)
         print(f"batch {t:2d}: drop {a} (P(best) < {DROP_BELOW} for {DROP_PATIENCE} batches)")
     if dropped:
-        alloc = bandit.query(active, draw=20000, rng=rng).shares
+        alloc = bandit.allocate(active, draw=20000, rng=rng).shares
     if alloc[leader] >= STOP_ABOVE and loss[leader] <= LOSS_TOLERANCE:
         print(f"batch {t:2d}: stop; {leader} has P(best) = {alloc[leader]:.3f}, expected loss {loss[leader]:.4f} log-odds")
         break

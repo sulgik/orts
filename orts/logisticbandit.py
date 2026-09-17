@@ -28,8 +28,8 @@ reference is one linear map away (``get_par``; paper, Supplement B).
 
 Groups.  Coordinates like these exist only among arms that comparisons have
 linked.  A batch sharing no arm with the state starts a group of its own, a
-second state with no covariance to the first.  ``groups`` lists them; a query
-may span them by the allocation rule in ``query``, but the states stay apart.
+second state with no covariance to the first.  ``groups`` lists them; one
+``allocate`` may span them by the rule it documents, but the states stay apart.
 Usually there is exactly one, and it is the whole state.
 """
 
@@ -55,9 +55,9 @@ CONTRAST_PRIORS = ("symmetric", "flat", "independent")
 
 @dataclass
 class Allocation:
-    """The answer to one action query: what to do with the next batch.
+    """The answer to one action step: what to do with the next batch.
 
-    ``arms`` are the arms the query named, in the caller's order.
+    ``arms`` are the arms that were named, in the caller's order.
     ``shares`` is the next batch's allocation over them, after the
     aggressiveness map and floors.  ``p_best`` is each arm's posterior
     probability of being best and ``expected_loss`` the expected loss, in
@@ -222,7 +222,7 @@ class LogisticBandit:
         Arms end up in the same group once a batch has exposed them together,
         directly or through a chain of batches.  Groups are independent
         posteriors with no covariance between them (paper, Supplement B), so
-        no contrast is reported across them; ``query`` may still allocate over
+        no contrast is reported across them; ``allocate`` may still cover
         several by the rule it documents.  Usually there is exactly one.
         """
         return [list(c.action_list) for c in self._components]
@@ -570,26 +570,33 @@ class LogisticBandit:
             mc = gen.multivariate_normal(mu[:-1], sigma, size=draw, method="svd")
         return arms, np.concatenate((mc, np.zeros((draw, 1))), axis=1)
 
-    def query(self, arms: Optional[Sequence[str]] = None, draw: int = 100000,
-              aggressive: float = 1.0, floor: float = 0.0,
-              rng: Optional[np.random.Generator] = None) -> Allocation:
-        """Steps A1-A2 as a query: name the arms that will be live in the next
-        batch and get their allocation, plus the quantities a stopping rule reads.
+    def allocate(self, arms: Optional[Sequence[str]] = None, draw: int = 100000,
+                 aggressive: float = 1.0, floor: float = 0.0,
+                 rng: Optional[np.random.Generator] = None) -> Allocation:
+        """Steps A1-A2: name the arms that will be live in the next batch and
+        get their allocation, plus the quantities a stopping rule reads.
 
-        The arm set of a query need not match the state's.  Arms in the state
-        but absent from the query are simply not allocated (their contrasts
+        A1 queries the state -- Thompson sampling's draw, ``M`` contrast
+        vectors with the reference arm scored 0 -- and A2 turns the winner
+        frequencies into the shares this returns.  Probability matching is
+        ``aggressive=1``; other values are no longer Thompson sampling, and
+        ``aggressive=0`` is a balanced A/B split with the posterior still
+        updating.  ``contrast_draws`` exposes A1's draws on their own.
+
+        The arm set need not match the state's.  Arms in the state but absent
+        from the call are simply not allocated (their contrasts
         stay in memory); arms the state has never observed get the uniform
         share ``1/len(arms)``, since they have no posterior, and the observed
         arms share the rest in proportion to their winner probabilities.
 
-        A query may also span several groups (see ``groups``).  Nothing has
+        A call may also span several groups (see ``groups``).  Nothing has
         compared them, so the same rule applies one level up: each group takes
         traffic in proportion to its size and allocates inside itself by its
         own winner probabilities, with an unobserved arm being a group of one
         and reducing to the rule above.  No comparison between groups is
         invented, and because "best" is only defined among arms a batch has
         compared, ``p_best`` and ``expected_loss`` are ``nan`` throughout such
-        a query -- a stopping rule must not read a ranking that spans groups.
+        such a call -- a stopping rule must not read a ranking across groups.
 
         Parameters
         ----------
@@ -643,7 +650,7 @@ class LogisticBandit:
                 comps.append(c)
                 blocks.append([a])
         blocks += [[a] for a in unobserved]
-        # "best" is only defined among arms a batch has compared, so a query
+        # "best" is only defined among arms a batch has compared, so a call
         # spanning several groups reports shares but no ranking
         cross_group = len(comps) > 1
 
@@ -677,17 +684,25 @@ class LogisticBandit:
                         loss[a] = float(l[i])
         return Allocation(arms, {a: shares[a] for a in arms}, p_best, loss)
 
+    def query(self, arms: Optional[Sequence[str]] = None, draw: int = 100000,
+              aggressive: float = 1.0, floor: float = 0.0,
+              rng: Optional[np.random.Generator] = None) -> Allocation:
+        """Deprecated 2.1-2.2 spelling of ``allocate``."""
+        warnings.warn("query is deprecated; use allocate", DeprecationWarning,
+                      stacklevel=2)
+        return self.allocate(arms, draw, aggressive, floor, rng)
+
     def win_prop(self, action_list: Optional[List[str]] = None, draw: int = 100000,
                  aggressive: float = 1.0, floor: float = 0.0,
                  rng: Optional[np.random.Generator] = None) -> Dict[str, float]:
-        """The next allocation as ``{arm: share}``; ``query(...).shares``."""
-        return self.query(action_list, draw, aggressive, floor, rng).shares
+        """The next allocation as ``{arm: share}``; ``allocate(...).shares``."""
+        return self.allocate(action_list, draw, aggressive, floor, rng).shares
 
     # ---------------------------------------------- stopping-rule quantities
     def expected_loss(self, action_list: Optional[List[str]] = None, draw: int = 100000,
                       rng: Optional[np.random.Generator] = None) -> Dict[str, float]:
-        """``E[max_j beta_j - beta_i]`` per arm, in log-odds units; ``query(...).expected_loss``."""
-        return self.query(action_list, draw, rng=rng).expected_loss
+        """``E[max_j beta_j - beta_i]`` per arm, in log-odds units; ``allocate(...).expected_loss``."""
+        return self.allocate(action_list, draw, rng=rng).expected_loss
 
     def implied_decay(self, excess_sd_beta: float) -> float:
         """``lambda = W / (v + W)``: the decay a measured contrast drift implies.
