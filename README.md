@@ -112,6 +112,7 @@ anything.
 | decay λ (Section 2.3) | `update(obs, decay=λ)` |
 | aggressiveness γ and floors (Section 5.2) | `query(arms, aggressive=γ, floor=f)` |
 | changing arm sets, new reference (Supplement B) | any arm set in `query(arms)`; `set_reference()`, `drop()`, `get_par()` |
+| independent experiment groups, merged when a batch links them (Supplement B) | automatic in `update`; `groups()` lists them, and a query spans one group |
 | warm start from a Beta-Bernoulli service (Supplement H) | `LogisticBandit.from_beta_posteriors({arm: (a, b)})` |
 | skipped batches: no events or no non-events (Supplement A) | `update` returns `False` and leaves the state |
 | first-fit check and start-up allocation (Algorithm 1) | before any fit, `query` returns the uniform allocation; a first batch with a separated arm is not fitted under the flat prior |
