@@ -399,3 +399,26 @@ def test_query_still_works_as_a_deprecated_alias_of_allocate():
     new = b.allocate(["A", "B"], draw=20000, rng=np.random.default_rng(4))
     assert old.shares == new.shares and old.p_best == new.p_best
     assert old.leader == new.leader
+
+
+def test_a_subset_allocate_uses_the_marginal_not_the_conditional_supplement_a():
+    """Leaving arms out marginalizes them away; it does not condition on them.
+    Supplement A: marginalization uses the covariance block, not the precision
+    block."""
+    b = LogisticBandit(reference="A")
+    b.update({"A": [20000, 600], "B": [20000, 660]})
+    b.update({"B": [20000, 660], "C": [20000, 700]})
+    assert b.action_list == ["B", "C", "A"]
+
+    cov = b.covariance()                              # full state: the reference
+    i = b.action_list.index("C")
+    marginal_sd = float(np.sqrt(cov[i, i]))
+    mu, sigma_inv = b.get_par(["C", "A"])
+    subset_sd = float(np.sqrt(np.linalg.pinv(sigma_inv)[0, 0]))
+    assert abs(subset_sd - marginal_sd) < 1e-9
+    assert abs(float(mu[0]) - float(b.get_par(b.action_list)[0][i])) < 1e-9
+
+    # and the allocation's p_best is what drawing that marginal directly gives
+    p_best = b.allocate(["C", "A"], draw=400000, rng=np.random.default_rng(7)).p_best["C"]
+    direct = np.random.default_rng(7).normal(mu[0], marginal_sd, 400000)
+    assert abs(p_best - float((direct > 0).mean())) < 5e-3
