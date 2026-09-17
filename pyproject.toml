@@ -16,6 +16,12 @@ classifiers = [
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Mathematics",
 ]
 dependencies = ["numpy>=1.22", "scipy>=1.8"]
@@ -26,6 +32,7 @@ examples = ["matplotlib>=3.5"]
 
 [project.urls]
 Repository = "https://github.com/sulgik/orts"
+Issues = "https://github.com/sulgik/orts/issues"
 "Preprint (2020)" = "https://arxiv.org/abs/2003.01905"
 
 [tool.setuptools]
