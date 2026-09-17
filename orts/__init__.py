@@ -16,6 +16,8 @@ LogisticBandit   OR-TS (default) and Full-TS: a reference-coded logistic model
                  arm sets, warm starts and stopping-rule quantities are methods
                  or arguments on this class.  ``query(arms)`` is the action:
                  name the arms that will be live next and get an Allocation.
+priors           The symmetric proper contrast prior the default starts from,
+                 and Supplement B's augmentation for an arm that joins later.
 Allocation       The answer to a query: shares, P(best), expected loss.
 TSPar            Beta-Bernoulli Thompson sampling, the per-arm baseline.
 DiscountedTSPar  Beta-Bernoulli with geometric count discounting, the
@@ -25,12 +27,13 @@ diagnostics      Batch-level contrasts with sampling bands, excess variance,
 """
 
 from .logisticbandit import LogisticBandit, Allocation
+from . import priors
 from .ts import TSPar, DiscountedTSPar
 from .utils import logistic, logit, estimate, is_pos_semidef
 from . import diagnostics
 
 __all__ = [
     "LogisticBandit", "Allocation", "TSPar", "DiscountedTSPar",
-    "logistic", "logit", "estimate", "is_pos_semidef", "diagnostics",
+    "logistic", "logit", "estimate", "is_pos_semidef", "diagnostics", "priors",
 ]
-__version__ = "2.2.0"
+__version__ = "2.3.0"

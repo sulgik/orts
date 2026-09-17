@@ -1,5 +1,45 @@
 # Changelog
 
+## 2.3.0 (2026-09)
+
+Caught up with the 2026 manuscript's symmetric-default revision, which makes
+the proper contrast prior the paper's basic specification and states it as
+what this reference implementation does.
+
+**The default contrast prior changed.** `LogisticBandit()` now starts from
+the symmetric proper prior of Supplement A — latent arm effects
+`N(0, tau^2)` with Algorithm 1's `tau = sqrt(2)`, so every pairwise log-odds
+contrast has prior sd 2, every arm prior winner probability `1/K`, and
+neither depends on which arm is the reference. Allocations from a first
+batch will differ from 2.2's, most visibly on sparse or separated batches,
+which the default now fits instead of skipping. To reproduce 2.2 exactly,
+pass `contrast_prior="flat"`.
+
+- `contrast_prior` selects `"symmetric"` (default), `"flat"` (the historical
+  zero-precision option) or `"independent"`; `arm_effect_prior_sd` is `tau`
+  and `new_contrast_prior_sd` the independent option's scale. `init_scale`
+  and `new_arm_scale` still work and map onto these, with a
+  `DeprecationWarning`.
+- An arm that joins after the first fit now enters through Supplement B's
+  symmetric augmentation: it is drawn from the same `N(0, tau^2)` population
+  as the incumbents and carries the retained latent centre at `tau^2 / K`,
+  leaving the incumbents' pairwise posteriors and the state's reference
+  invariance untouched. The paper no longer treats an informative new-arm
+  prior as a separate option. `orts.priors` holds the construction.
+- Under `contrast_prior="flat"` (or `decay=1`, which discards the carried
+  evidence and re-enters the same condition) an arm with no carried evidence
+  and only events, or only non-events, now raises `RuntimeError`: that fit
+  has no finite mode, and 2.2 skipped the batch silently. The batch-level
+  skip — no events or no non-events at all — still returns `False`.
+- Paper cross-references throughout the package, examples, notebook and
+  README updated to the current manuscript: decay is Section 5.1, the
+  diagnostics Section 4.2, changing arm sets Section 6.1, the warm start
+  Supplement D, and the stopping quantities, floors and `implied_decay`
+  Supplement G.
+- `docs/RESEARCH_PLAN.md` re-synced with the research repository: the
+  pre-registration record now runs H1-H27, including the symmetric-default
+  registrations (H13-H19c) that the paper's supplements cite.
+
 ## 2.2.0 (2026-09)
 
 The zero-count rules of the paper's Algorithm 1 and Supplements A and C.
