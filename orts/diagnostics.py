@@ -1,4 +1,4 @@
-"""Running diagnostics for the state-separation assumption (paper, Section 5.3).
+"""Running diagnostics for the state-separation assumption (paper, Section 4.2).
 
 All functions work on aggregated counts only.  The core quantities are the
 per-batch level ``alpha_t = logit(p_ref,t)`` and contrast
@@ -6,7 +6,7 @@ per-batch level ``alpha_t = logit(p_ref,t)`` and contrast
 variances, and the *excess* variance of a series of such estimates: the
 variance across batches minus the mean sampling variance, floored at zero,
 which is the movement of the true quantity beyond sampling noise
-(paper, Section 4.1).
+(paper, Section 4.2; detection floors and provenance in Supplement E).
 """
 
 from typing import Dict, Optional, Sequence, Tuple
@@ -87,7 +87,7 @@ def sampling_band(sampling_vars: Sequence[float], z: float = 2.0) -> np.ndarray:
 
 
 def implied_decay(excess_var_beta: float, posterior_var: float) -> float:
-    """``lambda = tau^2 / (v + tau^2)`` (paper, Supplement H)."""
+    """``lambda = W / (v + W)`` (paper, Supplement G)."""
     tau2, v = float(excess_var_beta), float(posterior_var)
     if tau2 < 0 or v < 0:
         raise ValueError("variances must be non-negative")

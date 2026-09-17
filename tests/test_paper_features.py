@@ -8,6 +8,11 @@ import numpy as np
 import pytest
 
 from orts import LogisticBandit, TSPar, DiscountedTSPar, diagnostics
+from orts.priors import (
+    augment_symmetric_contrast_state,
+    symmetric_contrast_covariance,
+    symmetric_contrast_precision,
+)
 
 
 def _shift(obs, delta):
@@ -214,11 +219,11 @@ def test_drop_and_set_reference():
     assert b.reference == "B"
 
 
-def test_query_is_the_action_and_its_arm_set_is_free():
-    """A query names the arms that will be live; the state's arm set need not match."""
+def test_allocate_is_the_action_and_its_arm_set_is_free():
+    """`allocate` names the arms that will be live; the state's arm set need not match."""
     b = LogisticBandit(reference="A")
     b.update({"A": [50000, 1500], "B": [50000, 1650], "C": [50000, 1400]})
-    q = b.query(["C", "B", "D"], draw=30000, rng=np.random.default_rng(6))   # A dropped, D never seen
+    q = b.allocate(["C", "B", "D"], draw=30000, rng=np.random.default_rng(6))   # A dropped, D never seen
     assert q.arms == ["C", "B", "D"] and list(q.shares) == ["C", "B", "D"]
     assert abs(sum(q.shares.values()) - 1) < 1e-9
     assert q.shares["D"] == pytest.approx(1 / 3) and np.isnan(q.p_best["D"]) and np.isnan(q.expected_loss["D"])
@@ -229,47 +234,87 @@ def test_query_is_the_action_and_its_arm_set_is_free():
 
 
 def test_first_fit_check_and_start_up_allocation_algorithm_1():
-    """Before any fit the query is the start-up allocation; a first batch with
-    a separated arm is not fitted under the flat prior; a later batch with a
-    separated arm is fitted, because the carried prior identifies it."""
+    """Before any fit `allocate` returns the start-up allocation.  Under the default
+    symmetric prior a separated first batch is fitted; under the explicit flat
+    option it has no finite fit and raises, and once a state exists a later
+    separated batch is fitted because the carried prior identifies it."""
     b = LogisticBandit(reference="A")
-    q = b.query(["A", "B", "C"], draw=1000)
+    q = b.allocate(["A", "B", "C"], draw=1000)
     assert q.shares == {"A": 1 / 3, "B": 1 / 3, "C": 1 / 3} and all(np.isnan(v) for v in q.p_best.values())
-    assert b.update({"A": [1000, 30], "B": [1000, 0], "C": [1000, 25]}) is False    # B separated: no state formed
-    assert b.action_list == [] and not b.fitted
-    assert b.update({"A": [1000, 30], "B": [1000, 20], "C": [1000, 25]}) is True
-    assert b.update({"A": [1000, 30], "B": [1000, 0], "C": [1000, 25]}) is True     # now B is identified by its prior
+
+    flat = LogisticBandit(reference="A", contrast_prior="flat")
+    with pytest.raises(RuntimeError, match="flat contrast prior"):
+        flat.update({"A": [1000, 30], "B": [1000, 0], "C": [1000, 25]})   # B separated
+    assert flat.action_list == [] and not flat.fitted
+    assert flat.update({"A": [1000, 30], "B": [1000, 20], "C": [1000, 25]}) is True
+    assert flat.update({"A": [1000, 30], "B": [1000, 0], "C": [1000, 25]}) is True  # B now has a prior
+    assert flat.contrasts()["B"][0] < flat.contrasts()["C"][0]
+
+    assert b.update({"A": [1000, 30], "B": [1000, 0], "C": [1000, 25]}) is True
     assert b.contrasts()["B"][0] < b.contrasts()["C"][0]
 
 
-def test_symmetric_proper_initialization_supplement_a():
-    """S_0 = tau^-2 (I - 11'/K): every pairwise difference has prior variance
-    2 tau^2 and every arm prior winner probability 1/K; it fits a first batch
-    with zero cells."""
+def test_symmetric_proper_initialization_is_the_default_supplement_a():
+    """S_0 = tau^-2 (I - 11'/K) with tau = sqrt(2) by default: every pairwise
+    difference has prior variance 2 tau^2 (so prior sd 2) and every arm prior
+    winner probability 1/K, and it fits a first batch with zero cells."""
+    b = LogisticBandit()
+    assert b.contrast_prior == "symmetric"
+    assert np.isclose(b.arm_effect_prior_sd, np.sqrt(2.0))
+
     tau, K = 0.5, 4
-    b = LogisticBandit(init_scale=tau)
-    S0 = (np.eye(K - 1) - np.ones((K - 1, K - 1)) / K) / tau ** 2
+    S0 = symmetric_contrast_precision(K, tau)
     Sigma0 = np.linalg.inv(S0)
+    assert np.allclose(Sigma0, symmetric_contrast_covariance(K, tau))
     assert np.allclose(Sigma0, tau ** 2 * (np.eye(K - 1) + np.ones((K - 1, K - 1))))
     # reference-vs-arm and arm-vs-arm differences share the variance 2 tau^2
     assert np.isclose(Sigma0[0, 0], 2 * tau ** 2)
     assert np.isclose(Sigma0[0, 0] + Sigma0[1, 1] - 2 * Sigma0[0, 1], 2 * tau ** 2)
-    assert b.update({"A": [200, 0], "B": [200, 5], "C": [200, 4], "D": [200, 6]}) is True
-    p = b.win_prop(draw=20000, rng=np.random.default_rng(3))
+    # Algorithm 1's default tau gives every pairwise contrast prior sd 2
+    assert np.isclose(symmetric_contrast_covariance(K, np.sqrt(2.0))[0, 0], 4.0)
+
+    scaled = LogisticBandit(arm_effect_prior_sd=tau)
+    assert scaled.update({"A": [200, 0], "B": [200, 5], "C": [200, 4], "D": [200, 6]}) is True
+    p = scaled.win_prop(draw=20000, rng=np.random.default_rng(3))
     assert p["A"] < min(p["B"], p["C"], p["D"])
 
 
-def test_proper_prior_for_a_separated_new_arm_supplement_c():
-    """A new arm whose first batch is separated: flat by default, so its
-    contrast is only as identified as the batch allows; with new_arm_scale
-    it gets a proper N(0, s^2) prior and a finite, shrunk contrast."""
+def test_symmetric_augmentation_of_a_new_arm_supplement_b():
+    """The default augmentation leaves the incumbents' pairwise posteriors
+    alone, gives the newcomer the retained latent centre plus tau^2, and
+    shrinks a separated newcomer that the flat option leaves unidentified."""
+    tau = 1.0
+    mean = np.array([0.4, -0.2])
+    cov = np.array([[0.5, 0.1], [0.1, 0.3]])
+    aug_mean, aug_cov = augment_symmetric_contrast_state(mean, cov, 1, tau)
+    assert np.allclose(aug_cov[:2, :2], cov)                      # incumbents untouched
+    assert np.allclose(aug_mean[:2], mean)
+    n_actions = 3                                                 # 2 contrasts + reference
+    expected_var = tau ** 2 + tau ** 2 / n_actions + float(np.ones(2) @ cov @ np.ones(2)) / n_actions ** 2
+    assert np.isclose(aug_cov[2, 2], expected_var)
+    assert np.isclose(aug_mean[2], mean.sum() / n_actions)
+
     obs = {"A": [2000, 60], "B": [2000, 66]}
-    flat, proper = LogisticBandit(reference="A"), LogisticBandit(reference="A", new_arm_scale=1.0)
-    for b in (flat, proper):
+    default = LogisticBandit(reference="A")
+    flat = LogisticBandit(reference="A", contrast_prior="flat")
+    for b in (default, flat):
         b.update(obs)
-        assert b.update({"A": [2000, 60], "B": [2000, 66], "D": [2000, 0]}) is True
-    assert abs(proper.contrasts()["D"][0]) < abs(flat.contrasts()["D"][0])
-    assert proper.contrasts()["D"][1] < flat.contrasts()["D"][1]
+    assert default.update({"A": [2000, 60], "B": [2000, 66], "D": [2000, 0]}) is True
+    with pytest.raises(RuntimeError, match="flat contrast prior"):
+        flat.update({"A": [2000, 60], "B": [2000, 66], "D": [2000, 0]})
+    # the incumbent comparison survives the arrival
+    assert default.contrasts()["B"][0] > 0
+    assert np.isfinite(default.contrasts()["D"][0]) and default.contrasts()["D"][0] < 0
+
+
+def test_deprecated_prior_spellings_still_work():
+    """2.2's init_scale/new_arm_scale map onto the named priors, with a warning."""
+    with pytest.warns(DeprecationWarning):
+        b = LogisticBandit(init_scale=0.5)
+    assert b.contrast_prior == "symmetric" and b.arm_effect_prior_sd == 0.5
+    with pytest.warns(DeprecationWarning):
+        b = LogisticBandit(new_arm_scale=1.0)
+    assert b.contrast_prior == "independent" and b.new_contrast_prior_sd == 1.0
 
 
 def test_disconnected_batch_starts_its_own_group_supplement_b():
@@ -278,39 +323,88 @@ def test_disconnected_batch_starts_its_own_group_supplement_b():
     assert b.update({"C": [10000, 350], "D": [10000, 300]}) is True
     assert [sorted(g) for g in b.groups()] == [["A", "B"], ["C", "D"]]
     # each group is a posterior of its own; neither knows the other's arms
-    assert abs(sum(b.query(["A", "B"], draw=20000, rng=np.random.default_rng(0)
+    assert abs(sum(b.allocate(["A", "B"], draw=20000, rng=np.random.default_rng(0)
                            ).shares.values()) - 1) < 1e-9
-    with pytest.raises(ValueError, match="separate groups"):
-        b.query(["A", "C"])
-    with pytest.raises(ValueError, match="separate groups"):
-        b.query()                                     # no single allocation spans both
+    # one call may span both: Supplement B's new-arm rule read for a group, so
+    # each group takes traffic in proportion to its size and allocates inside
+    # itself.  No comparison between the groups is invented, so no ranking is
+    # reported across them.
+    q = b.allocate(["A", "B", "C", "D"], draw=20000, rng=np.random.default_rng(0))
+    assert abs(sum(q.shares.values()) - 1) < 1e-9
+    assert abs(q.shares["A"] + q.shares["B"] - 0.5) < 1e-9      # group {A, B}
+    assert abs(q.shares["C"] + q.shares["D"] - 0.5) < 1e-9      # group {C, D}
+    assert q.shares["B"] > q.shares["A"] and q.shares["C"] > q.shares["D"]
+    assert all(np.isnan(v) for v in q.p_best.values())
+    assert all(np.isnan(v) for v in q.expected_loss.values())
+    # within one group the ranking is reported as usual
+    assert not np.isnan(b.allocate(["A", "B"], draw=20000,
+                                rng=np.random.default_rng(0)).p_best["B"])
 
 
-def test_a_linking_batch_merges_two_groups_supplement_b():
+def test_group_rule_reduces_to_the_paper_s_new_arm_rule_supplement_b():
+    """A group of one arm with no posterior is the rule the paper states: the
+    uniform share 1/|A|, with the observed arms scaled into the remainder."""
+    b = LogisticBandit()
+    b.update({"A": [50000, 1500], "B": [50000, 1650]})
+    q = b.allocate(["A", "B", "E"], draw=20000, rng=np.random.default_rng(2))
+    assert abs(q.shares["E"] - 1 / 3) < 1e-12
+    assert abs(q.shares["A"] + q.shares["B"] - 2 / 3) < 1e-9
+    assert np.isnan(q.p_best["E"]) and not np.isnan(q.p_best["B"])   # one group: ranked
+
+
+def test_the_bridge_keeps_one_group_supplement_b():
+    """The paper's bridge: batch one compares A with B, batch two B with C.
+    The shared arm keeps this inside one group -- C joins by augmentation --
+    and the joint posterior carries an A-versus-C comparison never run
+    directly, with the wider uncertainty the indirect route implies."""
+    b = LogisticBandit(reference="A")
+    b.update({"A": [20000, 600], "B": [20000, 660]})
+    b.update({"B": [20000, 660], "C": [20000, 700]})
+    assert len(b.groups()) == 1 and sorted(b.groups()[0]) == ["A", "B", "C"]
+    # marginals come from the covariance, not from a precision sub-block
+    cov = b.covariance()
+    i, j = b.action_list.index("B"), b.action_list.index("C")
+    sd_ab = float(np.sqrt(cov[i, i]))                          # run directly, batch one
+    sd_bc = float(np.sqrt(cov[i, i] + cov[j, j] - 2 * cov[i, j]))   # batch two
+    sd_ac = float(np.sqrt(cov[j, j]))                          # never run directly
+    # A was not in batch two, so its comparison with B is what batch one left it
+    assert abs(sd_ab - 0.05729) < 1e-4
+    # the indirect route carries both batches' uncertainty
+    assert sd_ac > sd_ab and sd_ac > sd_bc
+    assert abs(sd_ac - np.hypot(sd_ab, sd_bc)) < 1e-4
+    q = b.allocate(["A", "B", "C"], draw=20000, rng=np.random.default_rng(0))
+    assert not np.isnan(q.p_best["C"]) and abs(sum(q.shares.values()) - 1) < 1e-9
+
+
+def test_a_batch_joining_two_separate_groups_is_refused_supplement_b():
+    """Two groups initialized independently carry contrast priors centred on
+    their own arm sets.  Joining them is not a construction the paper gives,
+    so the batch is refused rather than fitted on an invented one."""
     b = LogisticBandit()
     b.update({"A": [10000, 300], "B": [10000, 330]})
     b.update({"C": [10000, 350], "D": [10000, 300]})
-    within_before = b.get_par(["A", "B"])[0][0]
-    sd_before = b.contrast_sd()["B"]
-    assert b.update({"B": [10000, 330], "C": [10000, 350]}) is True
-    assert len(b.groups()) == 1 and sorted(b.groups()[0]) == ["A", "B", "C", "D"]
-    # the merge is flat between the groups: it carries each group's own
-    # contrasts over untouched and lets the linking batch supply B vs C
-    assert abs(b.get_par(["A", "B"])[0][0] - within_before) < 1e-9
-    assert abs(b.contrast_sd()["B"] - sd_before) < 1e-9
-    link = np.log(350 / 9650) - np.log(330 / 9670)
-    assert abs(b.get_par(["C", "B"])[0][0] - link) < 1e-3
-    # and D, seen only in the second group, is now comparable to A through it
-    d_vs_c = np.log(300 / 9700) - np.log(350 / 9650)
-    assert abs(b.get_par(["D", "C"])[0][0] - d_vs_c) < 1e-3
-    shares = b.query(["A", "B", "C", "D"], draw=20000, rng=np.random.default_rng(1)).shares
-    assert abs(sum(shares.values()) - 1) < 1e-9 and shares["C"] > shares["D"]
+    assert len(b.groups()) == 2
+    with pytest.raises(ValueError, match="separate groups"):
+        b.update({"B": [10000, 330], "C": [10000, 350]})
+    # the refusal leaves both states exactly as they were
+    assert [sorted(g) for g in b.groups()] == [["A", "B"], ["C", "D"]]
 
 
-def test_a_subset_query_uses_the_marginal_not_the_conditional_supplement_a():
-    """Leaving arms out of a query marginalizes them away; it does not
-    condition on them.  Supplement A: marginalization uses the covariance
-    block, not the precision block."""
+def test_query_still_works_as_a_deprecated_alias_of_allocate():
+    """`query` was the 2.1-2.2 spelling; it forwards, with a warning."""
+    b = LogisticBandit()
+    b.update({"A": [50000, 1500], "B": [50000, 1650]})
+    with pytest.warns(DeprecationWarning, match="query is deprecated"):
+        old = b.query(["A", "B"], draw=20000, rng=np.random.default_rng(4))
+    new = b.allocate(["A", "B"], draw=20000, rng=np.random.default_rng(4))
+    assert old.shares == new.shares and old.p_best == new.p_best
+    assert old.leader == new.leader
+
+
+def test_a_subset_allocate_uses_the_marginal_not_the_conditional_supplement_a():
+    """Leaving arms out marginalizes them away; it does not condition on them.
+    Supplement A: marginalization uses the covariance block, not the precision
+    block."""
     b = LogisticBandit(reference="A")
     b.update({"A": [20000, 600], "B": [20000, 660]})
     b.update({"B": [20000, 660], "C": [20000, 700]})
@@ -324,7 +418,7 @@ def test_a_subset_query_uses_the_marginal_not_the_conditional_supplement_a():
     assert abs(subset_sd - marginal_sd) < 1e-9
     assert abs(float(mu[0]) - float(b.get_par(b.action_list)[0][i])) < 1e-9
 
-    # and the query's p_best is what drawing that marginal directly gives
-    p_best = b.query(["C", "A"], draw=400000, rng=np.random.default_rng(7)).p_best["C"]
+    # and the allocation's p_best is what drawing that marginal directly gives
+    p_best = b.allocate(["C", "A"], draw=400000, rng=np.random.default_rng(7)).p_best["C"]
     direct = np.random.default_rng(7).normal(mu[0], marginal_sd, 400000)
     assert abs(p_best - float((direct > 0).mean())) < 5e-3

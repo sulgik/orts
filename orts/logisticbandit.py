@@ -28,12 +28,12 @@ reference is one linear map away (``get_par``; paper, Supplement B).
 
 Groups.  Coordinates like these exist only among arms that comparisons have
 linked.  A batch sharing no arm with the state starts a group of its own, a
-second state with no covariance to the first; a batch exposing arms of two
-groups links them, and they are merged before the fit, flat in the directions
-between them.  ``groups`` lists them and a query spans one of them.  Usually
-there is exactly one, and it is the whole state.
+second state with no covariance to the first.  ``groups`` lists them; one
+``allocate`` may span them by the rule it documents, but the states stay apart.
+Usually there is exactly one, and it is the whole state.
 """
 
+import math
 import warnings
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -41,16 +41,23 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 from numpy.linalg import inv, pinv
 
+from .priors import augment_symmetric_contrast_state, symmetric_contrast_precision
 from .utils import estimate, is_pos_semidef
 
 Obs = Dict[str, Sequence[float]]
 
+#: Algorithm 1's default effect scale ``tau``: every pairwise log-odds
+#: contrast gets prior sd ``2``.
+DEFAULT_ARM_EFFECT_PRIOR_SD = math.sqrt(2.0)
+
+CONTRAST_PRIORS = ("symmetric", "flat", "independent")
+
 
 @dataclass
 class Allocation:
-    """The answer to one action query: what to do with the next batch.
+    """The answer to one action step: what to do with the next batch.
 
-    ``arms`` are the arms the query named, in the caller's order.
+    ``arms`` are the arms that were named, in the caller's order.
     ``shares`` is the next batch's allocation over them, after the
     aggressiveness map and floors.  ``p_best`` is each arm's posterior
     probability of being best and ``expected_loss`` the expected loss, in
@@ -104,28 +111,45 @@ class LogisticBandit:
     mu, sigma_inv, action_list
         An existing state: contrast means, precision matrix, and arm names
         with the reference arm last.  Leave all three ``None`` to start from
-        no prior information (zero precision, a flat prior on every
-        coordinate).
+        the initial contrast prior below.
     reference
         Which arm to hold as the canonical reference (for example the
         control).  It takes effect when that arm is first observed; until
         then, and by default, the first arm of the first batch is the
         reference.
-    init_scale
-        ``None`` (default) is the paper's basic specification: a flat
-        contrast prior, under which the first fit requires every arm in the
-        batch to have both events and non-events.  A positive ``tau`` selects
-        the symmetric proper initialization of Supplement A, exchangeable arm
-        effects ``N(0, tau^2)``, which gives every pairwise difference prior
-        variance ``2 tau^2`` and every arm prior winner probability ``1/K``.
-        It permits the first fit when individual arms have zero or complete
-        counts, at the cost of a prespecified effect scale.  Choose it before
-        observing outcomes; the paper says not to switch priors after
-        separation is seen.
-    new_arm_scale
-        Prior sd for the contrast of an arm that joins after the first fit.
-        ``None`` (default) is flat; a positive value is a proper ``N(0, s^2)``
-        prior, an explicit option for arms whose first batch is separated.
+    contrast_prior
+        How initial and newly introduced contrasts are regularized.
+
+        ``"symmetric"`` (the default, and the paper's basic specification as
+        of the 2026 revision) is the proper prior of Supplement A: latent arm
+        effects ``N(0, tau^2)`` with ``tau = arm_effect_prior_sd``, giving
+        every pairwise difference prior variance ``2 tau^2`` and every arm
+        prior winner probability ``1/K``, invariant to which arm is the
+        reference.  It permits a first fit when individual arms have zero or
+        complete counts, and an arm joining later enters through Supplement
+        B's symmetric augmentation.  Its cost is the prespecified scale.
+
+        ``"flat"`` is the historical zero-precision option, which reproduces
+        the earlier runs.  Under it a first fit requires every arm in the
+        batch to have both events and non-events, and an arm that joins later
+        gets a flat contrast prior with the same requirement.
+
+        ``"independent"`` is the historical independent reference-contrast
+        option; pass its marginal sd as ``new_contrast_prior_sd``.
+
+        Choose the prior and its scale before observing outcomes; the paper
+        says not to switch priors once separation is seen.
+    arm_effect_prior_sd
+        ``tau`` for the symmetric prior.  The default ``sqrt(2)`` is
+        Algorithm 1's, so that every pairwise log-odds contrast has prior
+        sd ``2``.
+    new_contrast_prior_sd
+        Required by, and only valid with, ``contrast_prior="independent"``.
+    init_scale, new_arm_scale
+        Deprecated 2.2 spellings.  ``init_scale=tau`` means
+        ``contrast_prior="symmetric", arm_effect_prior_sd=tau``, and
+        ``new_arm_scale=s`` means ``contrast_prior="independent",
+        new_contrast_prior_sd=s``.
 
     Examples
     --------
@@ -141,12 +165,17 @@ class LogisticBandit:
                  sigma_inv: Optional[np.ndarray] = None,
                  action_list: Optional[List[str]] = None,
                  reference: Optional[str] = None,
+                 contrast_prior: Optional[str] = None,
+                 arm_effect_prior_sd: float = DEFAULT_ARM_EFFECT_PRIOR_SD,
+                 new_contrast_prior_sd: Optional[float] = None,
                  init_scale: Optional[float] = None,
                  new_arm_scale: Optional[float] = None) -> None:
-        if init_scale is not None and init_scale <= 0:
-            raise ValueError("init_scale must be positive")
-        if new_arm_scale is not None and new_arm_scale <= 0:
-            raise ValueError("new_arm_scale must be positive")
+        contrast_prior, arm_effect_prior_sd, new_contrast_prior_sd = _resolve_prior(
+            contrast_prior, arm_effect_prior_sd, new_contrast_prior_sd,
+            init_scale, new_arm_scale)
+        self.contrast_prior = contrast_prior
+        self.arm_effect_prior_sd = arm_effect_prior_sd
+        self.new_contrast_prior_sd = new_contrast_prior_sd
         # one state per connected component of the comparison graph, the
         # group of arms that batches have linked; the first is the primary
         # one and is what the single-state attributes report
@@ -160,8 +189,6 @@ class LogisticBandit:
         # the arm to use as the canonical reference once it is first seen;
         # without it, the first arm of the first batch is the reference
         self._preferred_reference = reference
-        self.init_scale = init_scale
-        self.new_arm_scale = new_arm_scale
 
     # ------------------------------------------------------------------ state
     @property
@@ -193,10 +220,10 @@ class LogisticBandit:
         """The connected components of the comparison graph, one arm list each.
 
         Arms end up in the same group once a batch has exposed them together,
-        directly or through a chain of batches; a batch that links two groups
-        merges them.  Groups are independent posteriors with no covariance
-        between them (paper, Supplement B), so a query spans one group only.
-        Usually there is exactly one.
+        directly or through a chain of batches.  Groups are independent
+        posteriors with no covariance between them (paper, Supplement B), so
+        no contrast is reported across them; ``allocate`` may still cover
+        several by the rule it documents.  Usually there is exactly one.
         """
         return [list(c.action_list) for c in self._components]
 
@@ -259,6 +286,76 @@ class LogisticBandit:
         sd = np.sqrt(np.clip(np.diag(self.covariance()), 0.0, None))
         return {a: float(sd[i]) for i, a in enumerate(self.action_list[:-1])}
 
+    @staticmethod
+    def _invert(matrix: np.ndarray) -> np.ndarray:
+        """Invert a symmetric Gaussian block, tolerating a singular one."""
+        if matrix.size == 0:
+            return matrix.copy()
+        try:
+            out = inv(matrix)
+        except np.linalg.LinAlgError:
+            out = pinv(matrix)
+        # inv/pinv is symmetric only up to rounding, and marginalization
+        # round-trips these every batch, so re-symmetrize at the source
+        return 0.5 * (out + out.T)
+
+    def _augment_symmetric(self, prior, n_new: int, K: int, odds_ratios_only: bool):
+        """Supplement B's augmentation step: add ``n_new`` arms to the carried state.
+
+        The new arms' latent effects come from the same ``N(0, tau^2)``
+        population as the incumbents', and the latent centre the contrast
+        state does not identify is retained at variance ``tau^2 / K``.  The
+        incumbents' block is returned unchanged, so their pairwise posteriors
+        and the reference invariance of the state survive the arrival.
+        """
+        old_mean = np.asarray(prior[0], dtype=float)
+        old_precision = np.asarray(prior[1], dtype=float)
+        n_old = old_mean.size
+        n_old_contrasts = n_old - 1
+
+        if not _is_pos_def(old_precision[:-1, :-1] if odds_ratios_only else old_precision):
+            # The construction below needs a proper carried covariance.  The
+            # specified updates always produce one, but a caller may hand a
+            # singular state to the constructor, and then the latent centre the
+            # newcomer would load on is not identified either.  Give the new
+            # coordinates the marginal the symmetric prior implies, variance
+            # ``2 tau^2``, and invent no covariance.
+            mu_full = np.zeros(K)
+            S_full = np.zeros((K, K))
+            mu_full[n_new:] = old_mean
+            S_full[n_new:, n_new:] = old_precision
+            S_full[:n_new, :n_new] = np.eye(n_new) / (2.0 * self.arm_effect_prior_sd ** 2)
+            return mu_full, S_full
+
+        if odds_ratios_only:
+            contrast_cov = self._invert(old_precision[:-1, :-1])
+            aug_mean, aug_cov = augment_symmetric_contrast_state(
+                old_mean[:-1], contrast_cov, n_new, self.arm_effect_prior_sd)
+            # the utility returns [old contrasts, new contrasts]; the fit
+            # layout is [new contrasts, carried contrasts, level]
+            order = (list(range(n_old_contrasts, n_old_contrasts + n_new))
+                     + list(range(n_old_contrasts)))
+            mu_full = np.concatenate((aug_mean[order], [old_mean[-1]]))
+            S_full = np.zeros((K, K))
+            S_full[:-1, :-1] = self._invert(aug_cov[np.ix_(order, order)])
+            return mu_full, S_full
+
+        # Full-TS keeps the reference level and its covariance with the
+        # contrasts.  A new arm's contrast loads on the average carried
+        # contrast but not directly on that level; this linear construction
+        # leaves the whole carried marginal intact.
+        old_cov = self._invert(old_precision)
+        loading = np.zeros((n_new, n_old))
+        if n_old_contrasts:
+            loading[:, :n_old_contrasts] = 1.0 / n_old
+        noise = self.arm_effect_prior_sd ** 2 * (
+            np.eye(n_new) + np.ones((n_new, n_new)) / n_old)
+        cross = loading.dot(old_cov)
+        new_cov = cross.dot(loading.T) + noise
+        mu_full = np.concatenate((loading.dot(old_mean), old_mean))
+        covariance = np.block([[new_cov, cross], [cross.T, old_cov]])
+        return mu_full, self._invert(covariance)
+
     # ------------------------------------------------------- recognition (R1-R2)
     def update(self, obs: Obs, odds_ratios_only: bool = True,
                remove_not_observed: bool = False, decay: float = 0.0) -> bool:
@@ -276,30 +373,39 @@ class LogisticBandit:
             history; add them back later with a flat prior by observing them).
         decay
             ``lambda`` in ``[0, 1]``: the carried precision is scaled by
-            ``1 - lambda`` before the fit (paper, Section 2.3).
+            ``1 - lambda`` before the fit (paper, Section 5.1).  At
+            ``lambda = 1`` no carried evidence enters, so the fit must meet
+            Algorithm 1's flat-prior condition.
 
         Returns
         -------
         bool
             ``True`` if the state changed.  ``False`` if the batch was skipped
-            and the state left as it was.  Two rules skip (paper, Algorithm 1
-            and Supplement A).  Under the flat intercept prior a batch with no
-            events, or with no non-events, has an improper posterior.  And a
-            *first* fit under the flat contrast prior requires every arm in
-            the batch to have both events and non-events; if that fails no
-            state is formed, and ``query`` keeps returning the start-up
-            allocation.  The paper says not to pool a skipped batch with later
-            counts as though they shared one intercept, so callers should
-            not add its counts to the next batch.
+            and the state left as it was: under the flat intercept prior a
+            batch with no events, or with no non-events, has an improper
+            posterior, so Algorithm 1 skips it.  The paper says not to pool a
+            skipped batch with later counts as though they shared one
+            intercept, so callers should not add its counts to the next batch.
+
+        Raises
+        ------
+        RuntimeError
+            Under ``contrast_prior="flat"`` (or ``decay=1``), when an arm with
+            no carried evidence shows only events or only non-events.  That
+            fit has no finite mode (paper, Supplement A); the default
+            symmetric prior fits it instead.
 
         Notes
         -----
         A batch that shares no arm with the state starts a new group: its arms
         have no comparison with the ones in memory, so they get a state of
-        their own with no covariance to the others (paper, Supplement B).  A
-        later batch that exposes arms of two groups links them, and they are
-        merged into one state before the fit, flat in the between-group
-        directions that the batch itself identifies.  ``groups()`` lists them.
+        their own with no covariance to the others (paper, Supplement B).
+        ``groups()`` lists them.  The paper's bridge case is not this: a batch
+        that shares an arm with the state stays inside that group, and the
+        newcomer joins it by augmentation, which is how a comparison never run
+        directly is carried.  A batch serving arms of two separate groups
+        would join states that carry differently centred priors, which the
+        paper does not specify, and raises ``ValueError``.
         """
         _validate(obs)
         if not 0.0 <= decay <= 1.0:
@@ -312,28 +418,44 @@ class LogisticBandit:
         non_events = sum(v[0] - v[1] for v in obs_valid.values())
         if events == 0 or non_events == 0:
             return False
-        # ---- which groups this batch touches.  None is a batch that starts a
-        # group of its own; several means the batch links them, so they are
-        # merged into one state before the fit.
+        # ---- which group this batch belongs to.  None is a batch that starts
+        # a group of its own.  Several is a batch that would join groups no
+        # comparison has linked, which the paper does not specify: its bridge
+        # case (Supplement B) shares an arm with the state, so it stays inside
+        # one group and the newcomer enters by augmentation.
         touched = [c for c in self._components
                    if any(a in c.action_list for a in obs_valid)]
+        if len(touched) > 1:
+            raise ValueError(
+                "this batch serves arms from separate groups ({}). Nothing has "
+                "compared those groups, and each carries a contrast prior centred "
+                "on its own arm set, so joining them is not a construction the "
+                "paper specifies. Serve them in separate batches, or start a "
+                "fresh state over the arms you want compared.".format(
+                    "; ".join(", ".join(g) for g in self.groups()
+                              if any(a in g for a in obs_valid))))
         first_fit = not touched
-        if first_fit and self.init_scale is None:
-            # first-fit check: a flat contrast prior needs every arm to be
-            # identified from this batch alone
-            if any(v[1] == 0 or v[1] == v[0] for v in obs_valid.values()):
-                return False
+        # A flat contrast prior cannot identify an arm that shows only events
+        # or only non-events: its empirical logit is infinite and the fit has
+        # no finite mode (paper, Supplement A).  Say so rather than returning
+        # the large finite value the optimizer would drift to.  ``decay=1``
+        # discards the carried evidence, so it re-enters the same condition.
+        flat_restart = decay == 1.0
+        if self.contrast_prior == "flat" or flat_restart:
+            carried_arms = self.known_arms()
+            candidates = (obs_valid if flat_restart
+                          else {a: v for a, v in obs_valid.items() if a not in carried_arms})
+            separated = sorted(a for a, v in candidates.items() if v[1] in (0, v[0]))
+            if separated:
+                raise RuntimeError(
+                    "flat contrast prior: arm(s) {} enter with only events or only "
+                    "non-events, so this batch has no finite fit. Skip the batch, or "
+                    "choose a proper contrast prior before observing outcomes "
+                    "(paper, Supplement A).".format(", ".join(separated)))
 
         # ---- canonical order after this batch: known non-reference arms in
         # first-seen order, then the new arms, then the reference last
-        if len(touched) > 1:
-            merged = _merge(touched)
-            self._components = [merged if c is touched[0] else c
-                                for c in self._components
-                                if c is touched[0] or not any(c is t for t in touched)]
-            comp = merged
-        else:
-            comp = touched[0] if touched else None
+        comp = touched[0] if touched else None
 
         known = list(comp.action_list) if comp is not None else []
         new = [a for a in obs_valid if a not in known]
@@ -385,20 +507,24 @@ class LogisticBandit:
 
         # ---- prior over the full fit vector: new contrasts first
         K = len(fit_list)
-        if first_fit and self.init_scale is not None:
-            # symmetric proper initialization (Supplement A): S_0 = tau^-2 (I - 11'/K)
-            # on the K-1 contrasts, zero precision on the level
-            mu_full = np.zeros(K)
-            S_full = np.zeros((K, K))
-            S_full[:-1, :-1] = (np.eye(K - 1) - np.ones((K - 1, K - 1)) / K) / self.init_scale ** 2
+        mu_full = np.zeros(K)
+        S_full = np.zeros((K, K))
+        if prior[0] is None:
+            # nothing carried: this is the initialization of Algorithm 1
+            if self.contrast_prior == "symmetric" and K > 1:
+                # S_0 = tau^-2 (I - 11'/K) on the K-1 contrasts, flat level
+                S_full[:-1, :-1] = symmetric_contrast_precision(K, self.arm_effect_prior_sd)
+            elif self.contrast_prior == "independent" and K > 1:
+                S_full[:-1, :-1] = np.eye(K - 1) / self.new_contrast_prior_sd ** 2
         else:
-            mu_full = np.zeros(K)
-            S_full = np.zeros((K, K))
-            if prior[0] is not None:
-                mu_full[n_new:] = prior[0]
-                S_full[n_new:, n_new:] = prior[1]
-            if n_new and self.new_arm_scale is not None and not first_fit:
-                S_full[:n_new, :n_new] = np.eye(n_new) / self.new_arm_scale ** 2
+            mu_full[n_new:] = prior[0]
+            S_full[n_new:, n_new:] = prior[1]
+            if n_new:
+                if self.contrast_prior == "symmetric":
+                    mu_full, S_full = self._augment_symmetric(prior, n_new, K,
+                                                              odds_ratios_only)
+                elif self.contrast_prior == "independent":
+                    S_full[:n_new, :n_new] = np.eye(n_new) / self.new_contrast_prior_sd ** 2
         prior_full = (mu_full, S_full)
 
         obs_list = [obs_valid[a] for a in new_fit + observed_known + [fit_ref]]
@@ -444,17 +570,33 @@ class LogisticBandit:
             mc = gen.multivariate_normal(mu[:-1], sigma, size=draw, method="svd")
         return arms, np.concatenate((mc, np.zeros((draw, 1))), axis=1)
 
-    def query(self, arms: Optional[Sequence[str]] = None, draw: int = 100000,
-              aggressive: float = 1.0, floor: float = 0.0,
-              rng: Optional[np.random.Generator] = None) -> Allocation:
-        """Steps A1-A2 as a query: name the arms that will be live in the next
-        batch and get their allocation, plus the quantities a stopping rule reads.
+    def allocate(self, arms: Optional[Sequence[str]] = None, draw: int = 100000,
+                 aggressive: float = 1.0, floor: float = 0.0,
+                 rng: Optional[np.random.Generator] = None) -> Allocation:
+        """Steps A1-A2: name the arms that will be live in the next batch and
+        get their allocation, plus the quantities a stopping rule reads.
 
-        The arm set of a query need not match the state's.  Arms in the state
-        but absent from the query are simply not allocated (their contrasts
+        A1 queries the state -- Thompson sampling's draw, ``M`` contrast
+        vectors with the reference arm scored 0 -- and A2 turns the winner
+        frequencies into the shares this returns.  Probability matching is
+        ``aggressive=1``; other values are no longer Thompson sampling, and
+        ``aggressive=0`` is a balanced A/B split with the posterior still
+        updating.  ``contrast_draws`` exposes A1's draws on their own.
+
+        The arm set need not match the state's.  Arms in the state but absent
+        from the call are simply not allocated (their contrasts
         stay in memory); arms the state has never observed get the uniform
         share ``1/len(arms)``, since they have no posterior, and the observed
         arms share the rest in proportion to their winner probabilities.
+
+        A call may also span several groups (see ``groups``).  Nothing has
+        compared them, so the same rule applies one level up: each group takes
+        traffic in proportion to its size and allocates inside itself by its
+        own winner probabilities, with an unobserved arm being a group of one
+        and reducing to the rule above.  No comparison between groups is
+        invented, and because "best" is only defined among arms a batch has
+        compared, ``p_best`` and ``expected_loss`` are ``nan`` throughout such
+        such a call -- a stopping rule must not read a ranking across groups.
 
         Parameters
         ----------
@@ -476,13 +618,7 @@ class LogisticBandit:
             raise ValueError(f"aggressive must be positive, got {aggressive}")
         if not 0.0 <= floor < 1.0:
             raise ValueError(f"floor must be in [0, 1), got {floor}")
-        if arms is None and len(self._components) > 1:
-            raise ValueError(
-                "the state holds several separate groups of arms ({}); they have "
-                "no comparison with each other, so name the arms of one group "
-                "in query(arms).".format(
-                    "; ".join(", ".join(g) for g in self.groups())))
-        arms = list(arms) if arms is not None else list(self.action_list)
+        arms = list(arms) if arms is not None else list(self.known_arms())
         if len(set(arms)) != len(arms):
             raise ValueError("arms must be distinct")
         if not arms:
@@ -492,55 +628,93 @@ class LogisticBandit:
             nan = float("nan")
             return Allocation(arms, {a: 1.0 / len(arms) for a in arms},
                               {a: nan for a in arms}, {a: nan for a in arms})
-        observed = [a for a in arms if self._component_of(a) is not None]
         unobserved = [a for a in arms if self._component_of(a) is None]
-        if observed:
-            self._component_for(observed)   # one group per query
+        # The queried arms split into the groups that have a posterior over
+        # them, plus one block per arm nothing has observed.  Every block gets
+        # traffic in proportion to its size and allocates inside itself, which
+        # is the new-arm rule of Supplement B -- each arm with no posterior
+        # takes the uniform share 1/|A|, the rest scale into the remainder --
+        # read for a group rather than a single arm.  A one-arm block is the
+        # rule exactly as the paper states it.
+        blocks: List[List[str]] = []
+        comps: List[_Component] = []
+        for a in arms:
+            c = self._component_of(a)
+            if c is None:
+                continue
+            for i, seen in enumerate(comps):
+                if seen is c:
+                    blocks[i].append(a)
+                    break
+            else:
+                comps.append(c)
+                blocks.append([a])
+        blocks += [[a] for a in unobserved]
+        # "best" is only defined among arms a batch has compared, so a call
+        # spanning several groups reports shares but no ranking
+        cross_group = len(comps) > 1
 
         nan = float("nan")
+        total = float(len(arms))
         shares: Dict[str, float] = {}
         p_best: Dict[str, float] = {a: nan for a in arms}
         loss: Dict[str, float] = {a: nan for a in arms}
-        if len(observed) == 1:
-            shares[observed[0]] = 1.0 / (1 + len(unobserved))
-            p_best[observed[0]] = 1.0
-            loss[observed[0]] = 0.0
-        elif observed:
-            names, scores = self.contrast_draws(observed, draw, rng)
-            counts = np.bincount(scores.argmax(axis=1), minlength=len(names)).astype(float)
-            raw = counts / counts.sum()
-            l = (scores.max(axis=1, keepdims=True) - scores).mean(axis=0)
-            shaped = counts ** aggressive
-            p = shaped / shaped.sum()
-            if floor > 0.0:
-                p = _apply_floor(p, floor)
-            share = len(observed) / float(len(observed) + len(unobserved))
-            for i, a in enumerate(names):
-                shares[a] = float(p[i] * share)
-                p_best[a] = float(raw[i])
-                loss[a] = float(l[i])
-        for a in unobserved:
-            shares[a] = 1.0 / float(len(observed) + len(unobserved))
+        for block in blocks:
+            block_share = len(block) / total
+            if block[0] in unobserved:
+                shares[block[0]] = block_share
+            elif len(block) == 1:
+                shares[block[0]] = block_share
+                if not cross_group:
+                    p_best[block[0]] = 1.0
+                    loss[block[0]] = 0.0
+            else:
+                names, scores = self.contrast_draws(block, draw, rng)
+                counts = np.bincount(scores.argmax(axis=1), minlength=len(names)).astype(float)
+                raw = counts / counts.sum()
+                l = (scores.max(axis=1, keepdims=True) - scores).mean(axis=0)
+                shaped = counts ** aggressive
+                p = shaped / shaped.sum()
+                if floor > 0.0:
+                    p = _apply_floor(p, floor)
+                for i, a in enumerate(names):
+                    shares[a] = float(p[i] * block_share)
+                    if not cross_group:
+                        p_best[a] = float(raw[i])
+                        loss[a] = float(l[i])
         return Allocation(arms, {a: shares[a] for a in arms}, p_best, loss)
+
+    def query(self, arms: Optional[Sequence[str]] = None, draw: int = 100000,
+              aggressive: float = 1.0, floor: float = 0.0,
+              rng: Optional[np.random.Generator] = None) -> Allocation:
+        """Deprecated 2.1-2.2 spelling of ``allocate``."""
+        warnings.warn("query is deprecated; use allocate", DeprecationWarning,
+                      stacklevel=2)
+        return self.allocate(arms, draw, aggressive, floor, rng)
 
     def win_prop(self, action_list: Optional[List[str]] = None, draw: int = 100000,
                  aggressive: float = 1.0, floor: float = 0.0,
                  rng: Optional[np.random.Generator] = None) -> Dict[str, float]:
-        """The next allocation as ``{arm: share}``; ``query(...).shares``."""
-        return self.query(action_list, draw, aggressive, floor, rng).shares
+        """The next allocation as ``{arm: share}``; ``allocate(...).shares``."""
+        return self.allocate(action_list, draw, aggressive, floor, rng).shares
 
     # ---------------------------------------------- stopping-rule quantities
     def expected_loss(self, action_list: Optional[List[str]] = None, draw: int = 100000,
                       rng: Optional[np.random.Generator] = None) -> Dict[str, float]:
-        """``E[max_j beta_j - beta_i]`` per arm, in log-odds units; ``query(...).expected_loss``."""
-        return self.query(action_list, draw, rng=rng).expected_loss
+        """``E[max_j beta_j - beta_i]`` per arm, in log-odds units; ``allocate(...).expected_loss``."""
+        return self.allocate(action_list, draw, rng=rng).expected_loss
 
     def implied_decay(self, excess_sd_beta: float) -> float:
-        """``lambda = tau^2 / (v + tau^2)``: the decay a measured contrast drift implies.
+        """``lambda = W / (v + W)``: the decay a measured contrast drift implies.
 
-        ``tau`` is the per-batch excess sd of the contrast (``orts.diagnostics``
-        on logged counts; paper, Section 4.1) and ``v`` the median posterior
-        variance of the current contrasts (paper, Supplement H).
+        ``W`` is the squared per-batch excess sd of the contrast
+        (``orts.diagnostics`` on logged counts; paper, Section 4.2) read as an
+        innovation variance, and ``v`` the median posterior variance of the
+        current contrasts (paper, Supplement G).  The paper is explicit that
+        this algebra does not identify ``W``: excess sd measures variation of
+        the contrast across the observed periods, whereas an innovation
+        variance measures per-step change.  Treat the result as a starting
+        point for a prespecified discount, not an estimate.
         """
         if excess_sd_beta < 0:
             raise ValueError("excess_sd_beta must be non-negative")
@@ -593,8 +767,9 @@ class LogisticBandit:
         (the logit-normal approximation), so the contrasts against the
         reference inherit means ``log(a_i/b_i) - log(a_K/b_K)`` and the
         shared-reference covariance ``v_i + v_K`` on the diagonal and ``v_K``
-        off it (paper, Supplement H).  The level's belief is carried too, but
-        the first OR-TS update discards it, which is the point of migrating.
+        off it (paper, Supplement D, with the algebra in Supplement G).  The
+        level's belief is carried too, but the first OR-TS update discards it,
+        which is the point of migrating.
         """
         arms = list(posteriors)
         if len(arms) < 2:
@@ -615,6 +790,48 @@ class LogisticBandit:
         cov[:-1, -1] = cov[-1, :-1] = -v[-1]
         cov[-1, -1] = v[-1]
         return cls(mu=mu, sigma_inv=inv(cov), action_list=order)
+
+
+def _resolve_prior(contrast_prior, arm_effect_prior_sd, new_contrast_prior_sd,
+                   init_scale, new_arm_scale):
+    """Settle the contrast prior, translating the deprecated 2.2 spellings."""
+    if init_scale is not None:
+        warnings.warn(
+            "init_scale is deprecated; use contrast_prior='symmetric' with "
+            "arm_effect_prior_sd=tau", DeprecationWarning, stacklevel=3)
+        if contrast_prior is not None and contrast_prior != "symmetric":
+            raise ValueError("init_scale conflicts with contrast_prior="
+                             f"{contrast_prior!r}")
+        contrast_prior, arm_effect_prior_sd = "symmetric", init_scale
+    if new_arm_scale is not None:
+        warnings.warn(
+            "new_arm_scale is deprecated; use contrast_prior='independent' "
+            "with new_contrast_prior_sd=s", DeprecationWarning, stacklevel=3)
+        if contrast_prior not in (None, "independent"):
+            raise ValueError("new_arm_scale conflicts with contrast_prior="
+                             f"{contrast_prior!r}")
+        contrast_prior, new_contrast_prior_sd = "independent", new_arm_scale
+
+    if contrast_prior is None:
+        contrast_prior = "independent" if new_contrast_prior_sd is not None else "symmetric"
+    if contrast_prior not in CONTRAST_PRIORS:
+        raise ValueError("contrast_prior must be one of "
+                         + ", ".join(repr(p) for p in CONTRAST_PRIORS))
+    if contrast_prior != "independent" and new_contrast_prior_sd is not None:
+        raise ValueError("new_contrast_prior_sd is only valid with "
+                         "contrast_prior='independent'")
+
+    tau = float(arm_effect_prior_sd)
+    if not math.isfinite(tau) or tau <= 0.0:
+        raise ValueError("arm_effect_prior_sd must be positive and finite")
+    if contrast_prior == "independent":
+        if new_contrast_prior_sd is None:
+            raise ValueError("contrast_prior='independent' requires "
+                             "new_contrast_prior_sd")
+        new_contrast_prior_sd = float(new_contrast_prior_sd)
+        if not math.isfinite(new_contrast_prior_sd) or new_contrast_prior_sd <= 0.0:
+            raise ValueError("new_contrast_prior_sd must be positive and finite")
+    return contrast_prior, tau, new_contrast_prior_sd
 
 
 def _reexpress(mu: np.ndarray, sigma_inv: np.ndarray, old: List[str], new: List[str]
@@ -676,48 +893,16 @@ def _precision_from_covariance(cov: np.ndarray, flat: np.ndarray) -> np.ndarray:
     return 0.5 * (out + out.T)
 
 
-def _merge(components: List[_Component]) -> _Component:
-    """Join groups a batch has just linked into one state over their union.
+def _is_pos_def(sigma_inv: np.ndarray) -> bool:
+    """True when the precision is strictly positive definite, so it inverts.
 
-    Each group knows only its own contrasts; nothing observed so far relates
-    one group's log odds to another's, and their levels are different batches'
-    intercepts, which OR-TS never treats as commensurable.  So in the merged
-    coordinates the precision is the sum of the groups' own precisions, with
-    the joined groups' levels marginalized away: the between-group directions
-    come out flat, and the batch that touches both is what identifies them.
-    No covariance is invented (paper, Supplement B).
-
-    The first component keeps its reference and its coordinates; the others'
-    arms enter with contrast 0, which is a free choice because the shift of a
-    whole group lies in the null space of the merged precision.
+    The specified updates keep a state proper; a caller-supplied one need not
+    be.
     """
-    base = components[0]
-    ref = base.action_list[-1]
-    full = list(base.action_list[:-1])
-    for c in components[1:]:
-        full += list(c.action_list)
-    full += [ref]
-    K = len(full)
-    at = {a: i for i, a in enumerate(full)}
-    mu = np.zeros(K)
-    sigma_inv = np.zeros((K, K))
-    rows = [at[a] for a in base.action_list[:-1]] + [K - 1]
-    mu[rows] = base.mu
-    sigma_inv[np.ix_(rows, rows)] = base.sigma_inv
-    for c in components[1:]:
-        others = c.action_list[:-1]
-        if not others:                       # a one-arm group carries no contrast
-            continue
-        mu[[at[a] for a in others]] = c.mu[:-1]
-        # marginalize this group's level, then map its contrasts (differences
-        # against its own reference) into the merged coordinates
-        contrast_prec = _marginalize_last(c.sigma_inv)
-        A = np.zeros((len(others), K))
-        for i, a in enumerate(others):
-            A[i, at[a]] = 1.0
-            A[i, at[c.action_list[-1]]] = -1.0
-        sigma_inv += A.T.dot(contrast_prec).dot(A)
-    return _Component(mu, sigma_inv, full)
+    if sigma_inv.size == 0:
+        return False
+    ev = np.linalg.eigvalsh(np.asarray(sigma_inv, dtype=float))
+    return bool(ev[0] > 1e-10 * max(1.0, float(ev[-1])))
 
 
 def _marginalize_last(sigma_inv: np.ndarray) -> np.ndarray:
@@ -725,8 +910,7 @@ def _marginalize_last(sigma_inv: np.ndarray) -> np.ndarray:
 
     The Schur complement ``S11 - S12 S22^-1 S21``, which equals the older
     ``inv(inv(S)[:-1, :-1])`` whenever ``S`` is invertible and stays defined
-    when it is not -- a merged state is flat in the directions between the
-    groups it joined, so its precision is singular by construction.
+    when it is not.
     """
     s11, s12, s22 = sigma_inv[:-1, :-1], sigma_inv[:-1, -1:], sigma_inv[-1:, -1:]
     return s11 - s12.dot(pinv(s22)).dot(s12.T)
