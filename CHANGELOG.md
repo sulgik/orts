@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Separate experiment groups in one bandit (Supplement B). A batch that
+  shares no arm with the state used to fail with a shape error; it now starts
+  a group of its own -- a second state, with no covariance to the first,
+  because no comparison links them. A later batch that exposes arms of two
+  groups merges them into one state, flat in the between-group directions
+  that the batch itself identifies, so nothing is invented and each group's
+  own contrasts carry over unchanged.
+- `LogisticBandit.groups()` lists the groups and `known_arms()` every arm
+  held. `query` allocates within one group: naming arms from two, or calling
+  `query()` with no arms while several exist, raises `ValueError`. The
+  single-state attributes (`mu`, `sigma_inv`, `action_list`, `contrasts()`,
+  ...) report the primary group, which is the whole state in the usual
+  one-group case.
+
 ## 2.2.0 (2026-09)
 
 The zero-count rules of the paper's Algorithm 1 and Supplements A and C.
