@@ -25,6 +25,12 @@ order and any subset; the canonical order never changes because of that.
 If a batch does not expose the reference arm, the fit is done against an
 observed arm and the result is mapped back.  Any subset and any new
 reference is one linear map away (``get_par``; paper, Supplement B).
+
+Groups.  Coordinates like these exist only among arms that comparisons have
+linked.  A batch sharing no arm with the state starts a group of its own, a
+second state with no covariance to the first.  ``groups`` lists them; a query
+may span them by the allocation rule in ``query``, but the states stay apart.
+Usually there is exactly one, and it is the whole state.
 """
 
 import math
@@ -71,6 +77,30 @@ class Allocation:
     @property
     def leader(self) -> str:
         return max(self.arms, key=lambda a: self.shares[a])
+
+
+@dataclass
+class _Component:
+    """One connected component of the comparison graph: a state in its own right.
+
+    Arms that have shared a batch are linked by a contrast the data speaks
+    about; arms that never have are not, and Supplement B keeps them in
+    separate states with no covariance between them.  A component holds one
+    such state in the canonical ``(contrasts, level)`` coordinates.
+    """
+    mu: np.ndarray
+    sigma_inv: np.ndarray
+    action_list: List[str]
+
+    def get_par(self, action_list: List[str]) -> Tuple[np.ndarray, np.ndarray]:
+        for a in action_list:
+            if a not in self.action_list:
+                raise KeyError(f"arm '{a}' is not in this group")
+        return _reexpress(self.mu, self.sigma_inv, self.action_list, list(action_list))
+
+    def transform(self, action_list: List[str]) -> None:
+        self.mu, self.sigma_inv = self.get_par(list(action_list))
+        self.action_list = list(action_list)
 
 
 class LogisticBandit:
@@ -146,21 +176,80 @@ class LogisticBandit:
         self.contrast_prior = contrast_prior
         self.arm_effect_prior_sd = arm_effect_prior_sd
         self.new_contrast_prior_sd = new_contrast_prior_sd
-        self.mu = np.array(mu, dtype=float) if mu is not None else np.array([])
-        self.sigma_inv = (np.array(sigma_inv, dtype=float) if sigma_inv is not None
-                          else np.empty((0, 0)))
-        self.action_list = list(action_list) if action_list is not None else []
+        # one state per connected component of the comparison graph, the
+        # group of arms that batches have linked; the first is the primary
+        # one and is what the single-state attributes report
+        self._components: List[_Component] = []
+        if action_list and mu is not None:
+            self._components.append(_Component(
+                np.array(mu, dtype=float),
+                (np.array(sigma_inv, dtype=float) if sigma_inv is not None
+                 else np.zeros((len(action_list), len(action_list)))),
+                list(action_list)))
         # the arm to use as the canonical reference once it is first seen;
         # without it, the first arm of the first batch is the reference
         self._preferred_reference = reference
-        # True once a fit has completed; before that the state is improper
-        # (or absent) and queries return the start-up allocation
-        self.fitted = len(self.action_list) > 0 and mu is not None
 
     # ------------------------------------------------------------------ state
+    @property
+    def mu(self) -> np.ndarray:
+        """Contrast means of the primary group (see ``groups``)."""
+        return self._components[0].mu if self._components else np.array([])
+
+    @property
+    def sigma_inv(self) -> np.ndarray:
+        """Precision matrix of the primary group."""
+        return self._components[0].sigma_inv if self._components else np.empty((0, 0))
+
+    @property
+    def action_list(self) -> List[str]:
+        """Canonical order of the primary group, reference arm last."""
+        return self._components[0].action_list if self._components else []
+
+    @property
+    def fitted(self) -> bool:
+        """True once a fit has completed; before that queries return the
+        start-up allocation."""
+        return bool(self._components)
+
     def get_models(self) -> List[str]:
-        """Arms currently in the state, reference arm last."""
+        """Arms of the primary group, reference arm last (``groups`` lists all)."""
         return self.action_list
+
+    def groups(self) -> List[List[str]]:
+        """The connected components of the comparison graph, one arm list each.
+
+        Arms end up in the same group once a batch has exposed them together,
+        directly or through a chain of batches.  Groups are independent
+        posteriors with no covariance between them (paper, Supplement B), so
+        no contrast is reported across them; ``query`` may still allocate over
+        several by the rule it documents.  Usually there is exactly one.
+        """
+        return [list(c.action_list) for c in self._components]
+
+    def known_arms(self) -> List[str]:
+        """Every arm the state holds, across all groups."""
+        return [a for c in self._components for a in c.action_list]
+
+    def _component_of(self, arm: str) -> Optional[_Component]:
+        return next((c for c in self._components if arm in c.action_list), None)
+
+    def _component_for(self, arms: Sequence[str]) -> _Component:
+        """The one group holding every arm of ``arms``."""
+        found = None
+        for a in arms:
+            c = self._component_of(a)
+            if c is None:
+                raise KeyError(f"arm '{a}' is not in the state")
+            if found is None:
+                found = c
+            elif c is not found:
+                raise ValueError(
+                    "arms {} and {} are in separate groups: no batch has ever "
+                    "compared them, so there is no contrast between them to "
+                    "report. Query one group at a time (see groups()).".format(
+                        arms[0], a))
+        return found
 
     @property
     def reference(self) -> Optional[str]:
@@ -173,25 +262,16 @@ class LogisticBandit:
         This is the linear map of Supplement B: contrasts against a new
         reference are differences of contrasts against the old one, and the
         precision transforms accordingly.  Winner probabilities are unchanged
-        by it.  The stored state is not modified.
+        by it.  The stored state is not modified.  ``action_list`` must lie
+        within one group.
         """
         if not action_list:
             return None, None
-        for a in action_list:
-            if a not in self.action_list:
-                raise KeyError(f"arm '{a}' is not in the state")
-        return _reexpress(self.mu, self.sigma_inv, self.action_list, list(action_list))
+        return self._component_for(action_list).get_par(list(action_list))
 
     def transform(self, action_list: List[str]) -> None:
-        """Re-express the state in place for a subset or a new reference."""
-        mu, sigma_inv = self.get_par(action_list)
-        fitted = self.fitted
-        self.__init__(mu=mu, sigma_inv=sigma_inv, action_list=action_list,
-                      reference=self._preferred_reference,
-                      contrast_prior=self.contrast_prior,
-                      arm_effect_prior_sd=self.arm_effect_prior_sd,
-                      new_contrast_prior_sd=self.new_contrast_prior_sd)
-        self.fitted = fitted
+        """Re-express a group in place for a subset or a new reference."""
+        self._component_for(action_list).transform(list(action_list))
 
     def covariance(self, action_list: Optional[List[str]] = None) -> np.ndarray:
         """Posterior covariance over ``action_list``'s coordinates."""
@@ -199,7 +279,8 @@ class LogisticBandit:
         return pinv(sigma_inv)
 
     def contrast_sd(self) -> Dict[str, float]:
-        """Posterior sd of each non-reference arm's contrast against the reference."""
+        """Posterior sd of each non-reference arm's contrast against the
+        reference, within the primary group."""
         if len(self.action_list) < 2:
             return {}
         sd = np.sqrt(np.clip(np.diag(self.covariance()), 0.0, None))
@@ -231,6 +312,20 @@ class LogisticBandit:
         old_precision = np.asarray(prior[1], dtype=float)
         n_old = old_mean.size
         n_old_contrasts = n_old - 1
+
+        if not _is_pos_def(old_precision[:-1, :-1] if odds_ratios_only else old_precision):
+            # The construction below needs a proper carried covariance.  The
+            # specified updates always produce one, but a caller may hand a
+            # singular state to the constructor, and then the latent centre the
+            # newcomer would load on is not identified either.  Give the new
+            # coordinates the marginal the symmetric prior implies, variance
+            # ``2 tau^2``, and invent no covariance.
+            mu_full = np.zeros(K)
+            S_full = np.zeros((K, K))
+            mu_full[n_new:] = old_mean
+            S_full[n_new:, n_new:] = old_precision
+            S_full[:n_new, :n_new] = np.eye(n_new) / (2.0 * self.arm_effect_prior_sd ** 2)
+            return mu_full, S_full
 
         if odds_ratios_only:
             contrast_cov = self._invert(old_precision[:-1, :-1])
@@ -299,6 +394,18 @@ class LogisticBandit:
             no carried evidence shows only events or only non-events.  That
             fit has no finite mode (paper, Supplement A); the default
             symmetric prior fits it instead.
+
+        Notes
+        -----
+        A batch that shares no arm with the state starts a new group: its arms
+        have no comparison with the ones in memory, so they get a state of
+        their own with no covariance to the others (paper, Supplement B).
+        ``groups()`` lists them.  The paper's bridge case is not this: a batch
+        that shares an arm with the state stays inside that group, and the
+        newcomer joins it by augmentation, which is how a comparison never run
+        directly is carried.  A batch serving arms of two separate groups
+        would join states that carry differently centred priors, which the
+        paper does not specify, and raises ``ValueError``.
         """
         _validate(obs)
         if not 0.0 <= decay <= 1.0:
@@ -311,7 +418,23 @@ class LogisticBandit:
         non_events = sum(v[0] - v[1] for v in obs_valid.values())
         if events == 0 or non_events == 0:
             return False
-        first_fit = not self.fitted
+        # ---- which group this batch belongs to.  None is a batch that starts
+        # a group of its own.  Several is a batch that would join groups no
+        # comparison has linked, which the paper does not specify: its bridge
+        # case (Supplement B) shares an arm with the state, so it stays inside
+        # one group and the newcomer enters by augmentation.
+        touched = [c for c in self._components
+                   if any(a in c.action_list for a in obs_valid)]
+        if len(touched) > 1:
+            raise ValueError(
+                "this batch serves arms from separate groups ({}). Nothing has "
+                "compared those groups, and each carries a contrast prior centred "
+                "on its own arm set, so joining them is not a construction the "
+                "paper specifies. Serve them in separate batches, or start a "
+                "fresh state over the arms you want compared.".format(
+                    "; ".join(", ".join(g) for g in self.groups()
+                              if any(a in g for a in obs_valid))))
+        first_fit = not touched
         # A flat contrast prior cannot identify an arm that shows only events
         # or only non-events: its empirical logit is infinite and the fit has
         # no finite mode (paper, Supplement A).  Say so rather than returning
@@ -319,9 +442,9 @@ class LogisticBandit:
         # discards the carried evidence, so it re-enters the same condition.
         flat_restart = decay == 1.0
         if self.contrast_prior == "flat" or flat_restart:
+            carried_arms = self.known_arms()
             candidates = (obs_valid if flat_restart
-                          else {a: v for a, v in obs_valid.items()
-                                if a not in self.action_list})
+                          else {a: v for a, v in obs_valid.items() if a not in carried_arms})
             separated = sorted(a for a, v in candidates.items() if v[1] in (0, v[0]))
             if separated:
                 raise RuntimeError(
@@ -332,7 +455,9 @@ class LogisticBandit:
 
         # ---- canonical order after this batch: known non-reference arms in
         # first-seen order, then the new arms, then the reference last
-        known = list(self.action_list)
+        comp = touched[0] if touched else None
+
+        known = list(comp.action_list) if comp is not None else []
         new = [a for a in obs_valid if a not in known]
         if not known:
             ref = (self._preferred_reference if self._preferred_reference in obs_valid
@@ -345,8 +470,8 @@ class LogisticBandit:
                 if ref not in keep:
                     ref = keep[-1]
                 keep = [a for a in keep if a != ref] + [ref]
-                self.transform(keep)
-                known = list(self.action_list)
+                comp.transform(keep)
+                known = list(comp.action_list)
         canonical = [a for a in known if a != ref] + [a for a in new if a != ref] + [ref]
 
         # ---- fit layout: new arms, carried-but-unobserved arms, observed arms
@@ -367,12 +492,12 @@ class LogisticBandit:
         carried = unobserved + observed_known + ([fit_ref] if fit_ref in known else [])
         n_new = len(fit_list) - len(carried)
 
-        prior = self.get_par(carried) if carried else (None, None)
+        prior = comp.get_par(carried) if carried else (None, None)
         if prior[0] is not None and odds_ratios_only and len(prior[0]) > 1:
             # marginalize the level: keep the contrasts' covariance block and
             # give the new intercept zero precision (a flat prior)
             sigma_inv_new = np.zeros((len(prior[0]), len(prior[0])))
-            sigma_inv_new[:-1, :-1] = inv(inv(prior[1])[:-1, :-1])
+            sigma_inv_new[:-1, :-1] = _marginalize_last(prior[1])
             prior = (prior[0], sigma_inv_new)
         if prior[0] is not None and fit_ref not in known:
             # the level coordinate of the carried state belongs to a
@@ -406,13 +531,16 @@ class LogisticBandit:
         indexes = [n_new, n_new + len(unobserved), K]
         mu, sigma_inv = estimate(prior_full, obs_list, indexes, discount=decay,
                                  prior_covers_all=True)
-        self.fitted = True
 
         # ---- back to the canonical order
-        self.mu, self.sigma_inv, self.action_list = mu, sigma_inv, fit_list
         if fit_list != canonical:
-            self.mu, self.sigma_inv = _reexpress(self.mu, self.sigma_inv, fit_list, canonical)
-            self.action_list = canonical
+            mu, sigma_inv = _reexpress(mu, sigma_inv, fit_list, canonical)
+        else:
+            canonical = fit_list
+        if comp is None:
+            self._components.append(_Component(mu, sigma_inv, canonical))
+        else:
+            comp.mu, comp.sigma_inv, comp.action_list = mu, sigma_inv, canonical
         return True
 
     # ------------------------------------------------------------ action (A1-A2)
@@ -454,6 +582,15 @@ class LogisticBandit:
         share ``1/len(arms)``, since they have no posterior, and the observed
         arms share the rest in proportion to their winner probabilities.
 
+        A query may also span several groups (see ``groups``).  Nothing has
+        compared them, so the same rule applies one level up: each group takes
+        traffic in proportion to its size and allocates inside itself by its
+        own winner probabilities, with an unobserved arm being a group of one
+        and reducing to the rule above.  No comparison between groups is
+        invented, and because "best" is only defined among arms a batch has
+        compared, ``p_best`` and ``expected_loss`` are ``nan`` throughout such
+        a query -- a stopping rule must not read a ranking that spans groups.
+
         Parameters
         ----------
         arms
@@ -474,7 +611,7 @@ class LogisticBandit:
             raise ValueError(f"aggressive must be positive, got {aggressive}")
         if not 0.0 <= floor < 1.0:
             raise ValueError(f"floor must be in [0, 1), got {floor}")
-        arms = list(arms) if arms is not None else list(self.action_list)
+        arms = list(arms) if arms is not None else list(self.known_arms())
         if len(set(arms)) != len(arms):
             raise ValueError("arms must be distinct")
         if not arms:
@@ -484,32 +621,60 @@ class LogisticBandit:
             nan = float("nan")
             return Allocation(arms, {a: 1.0 / len(arms) for a in arms},
                               {a: nan for a in arms}, {a: nan for a in arms})
-        observed = [a for a in arms if a in self.action_list]
-        unobserved = [a for a in arms if a not in self.action_list]
+        unobserved = [a for a in arms if self._component_of(a) is None]
+        # The queried arms split into the groups that have a posterior over
+        # them, plus one block per arm nothing has observed.  Every block gets
+        # traffic in proportion to its size and allocates inside itself, which
+        # is the new-arm rule of Supplement B -- each arm with no posterior
+        # takes the uniform share 1/|A|, the rest scale into the remainder --
+        # read for a group rather than a single arm.  A one-arm block is the
+        # rule exactly as the paper states it.
+        blocks: List[List[str]] = []
+        comps: List[_Component] = []
+        for a in arms:
+            c = self._component_of(a)
+            if c is None:
+                continue
+            for i, seen in enumerate(comps):
+                if seen is c:
+                    blocks[i].append(a)
+                    break
+            else:
+                comps.append(c)
+                blocks.append([a])
+        blocks += [[a] for a in unobserved]
+        # "best" is only defined among arms a batch has compared, so a query
+        # spanning several groups reports shares but no ranking
+        cross_group = len(comps) > 1
+
         nan = float("nan")
+        total = float(len(arms))
         shares: Dict[str, float] = {}
         p_best: Dict[str, float] = {a: nan for a in arms}
         loss: Dict[str, float] = {a: nan for a in arms}
-        if len(observed) == 1:
-            shares[observed[0]] = 1.0 / (1 + len(unobserved))
-            p_best[observed[0]] = 1.0
-            loss[observed[0]] = 0.0
-        elif observed:
-            names, scores = self.contrast_draws(observed, draw, rng)
-            counts = np.bincount(scores.argmax(axis=1), minlength=len(names)).astype(float)
-            raw = counts / counts.sum()
-            l = (scores.max(axis=1, keepdims=True) - scores).mean(axis=0)
-            shaped = counts ** aggressive
-            p = shaped / shaped.sum()
-            if floor > 0.0:
-                p = _apply_floor(p, floor)
-            share = len(observed) / float(len(observed) + len(unobserved))
-            for i, a in enumerate(names):
-                shares[a] = float(p[i] * share)
-                p_best[a] = float(raw[i])
-                loss[a] = float(l[i])
-        for a in unobserved:
-            shares[a] = 1.0 / float(len(observed) + len(unobserved))
+        for block in blocks:
+            block_share = len(block) / total
+            if block[0] in unobserved:
+                shares[block[0]] = block_share
+            elif len(block) == 1:
+                shares[block[0]] = block_share
+                if not cross_group:
+                    p_best[block[0]] = 1.0
+                    loss[block[0]] = 0.0
+            else:
+                names, scores = self.contrast_draws(block, draw, rng)
+                counts = np.bincount(scores.argmax(axis=1), minlength=len(names)).astype(float)
+                raw = counts / counts.sum()
+                l = (scores.max(axis=1, keepdims=True) - scores).mean(axis=0)
+                shaped = counts ** aggressive
+                p = shaped / shaped.sum()
+                if floor > 0.0:
+                    p = _apply_floor(p, floor)
+                for i, a in enumerate(names):
+                    shares[a] = float(p[i] * block_share)
+                    if not cross_group:
+                        p_best[a] = float(raw[i])
+                        loss[a] = float(l[i])
         return Allocation(arms, {a: shares[a] for a in arms}, p_best, loss)
 
     def win_prop(self, action_list: Optional[List[str]] = None, draw: int = 100000,
@@ -546,7 +711,8 @@ class LogisticBandit:
         return 0.0 if tau2 == 0.0 else tau2 / (v + tau2)
 
     def contrasts(self) -> Dict[str, Tuple[float, float]]:
-        """``{arm: (mean, sd)}`` of each arm's log-odds contrast against the reference."""
+        """``{arm: (mean, sd)}`` of each arm's log-odds contrast against the
+        reference, within the primary group."""
         sds = self.contrast_sd()
         return {a: (float(self.mu[i]), sds[a]) for i, a in enumerate(self.action_list[:-1])}
 
@@ -557,20 +723,24 @@ class LogisticBandit:
 
     def set_reference(self, arm: str) -> None:
         """Re-base the canonical order on ``arm`` (a linear map; nothing is lost)."""
-        if arm not in self.action_list:
-            raise KeyError(f"arm '{arm}' is not in the state")
-        self.transform([a for a in self.action_list if a != arm] + [arm])
+        comp = self._component_for([arm])
+        comp.transform([a for a in comp.action_list if a != arm] + [arm])
 
     def drop(self, arms: Sequence[str]) -> None:
         """Fold the given arms out of the state (Supplement B); they can be
-        re-introduced later by observing them, with a flat contrast prior."""
-        keep = [a for a in self.action_list if a not in set(arms)]
-        if not keep:
-            self.__init__(reference=self._preferred_reference, init_scale=self.init_scale,
-                          new_arm_scale=self.new_arm_scale)
-            return
-        ref = self.reference if self.reference in keep else keep[-1]
-        self.transform([a for a in keep if a != ref] + [ref])
+        re-introduced later by observing them, with a flat contrast prior.
+        Arms are dropped from whichever group holds them; a group left with
+        nothing is removed."""
+        gone = set(arms)
+        kept = []
+        for c in self._components:
+            keep = [a for a in c.action_list if a not in gone]
+            if not keep:
+                continue
+            ref = c.action_list[-1] if c.action_list[-1] in keep else keep[-1]
+            c.transform([a for a in keep if a != ref] + [ref])
+            kept.append(c)
+        self._components = kept
 
     # ------------------------------------------------------------- warm start
     @classmethod
@@ -665,6 +835,29 @@ def _reexpress(mu: np.ndarray, sigma_inv: np.ndarray, old: List[str], new: List[
     T = to_new.dot(to_logodds)
     T_inv = np.rint(pinv(T))                 # entries are exactly 0 or +-1
     return T.dot(mu), T_inv.T.dot(sigma_inv).dot(T_inv)
+
+
+def _is_pos_def(sigma_inv: np.ndarray) -> bool:
+    """True when the precision is strictly positive definite, so it inverts.
+
+    The specified updates keep a state proper; a caller-supplied one need not
+    be.
+    """
+    if sigma_inv.size == 0:
+        return False
+    ev = np.linalg.eigvalsh(np.asarray(sigma_inv, dtype=float))
+    return bool(ev[0] > 1e-10 * max(1.0, float(ev[-1])))
+
+
+def _marginalize_last(sigma_inv: np.ndarray) -> np.ndarray:
+    """Precision of the contrasts once the level is integrated out.
+
+    The Schur complement ``S11 - S12 S22^-1 S21``, which equals the older
+    ``inv(inv(S)[:-1, :-1])`` whenever ``S`` is invertible and stays defined
+    when it is not.
+    """
+    s11, s12, s22 = sigma_inv[:-1, :-1], sigma_inv[:-1, -1:], sigma_inv[-1:, -1:]
+    return s11 - s12.dot(pinv(s22)).dot(s12.T)
 
 
 def _pad_flat(sigma_inv: np.ndarray) -> np.ndarray:

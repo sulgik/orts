@@ -315,3 +315,76 @@ def test_deprecated_prior_spellings_still_work():
     with pytest.warns(DeprecationWarning):
         b = LogisticBandit(new_arm_scale=1.0)
     assert b.contrast_prior == "independent" and b.new_contrast_prior_sd == 1.0
+
+
+def test_disconnected_batch_starts_its_own_group_supplement_b():
+    b = LogisticBandit()
+    b.update({"A": [10000, 300], "B": [10000, 330]})
+    assert b.update({"C": [10000, 350], "D": [10000, 300]}) is True
+    assert [sorted(g) for g in b.groups()] == [["A", "B"], ["C", "D"]]
+    # each group is a posterior of its own; neither knows the other's arms
+    assert abs(sum(b.query(["A", "B"], draw=20000, rng=np.random.default_rng(0)
+                           ).shares.values()) - 1) < 1e-9
+    # a query may span both: Supplement B's new-arm rule read for a group, so
+    # each group takes traffic in proportion to its size and allocates inside
+    # itself.  No comparison between the groups is invented, so no ranking is
+    # reported across them.
+    q = b.query(["A", "B", "C", "D"], draw=20000, rng=np.random.default_rng(0))
+    assert abs(sum(q.shares.values()) - 1) < 1e-9
+    assert abs(q.shares["A"] + q.shares["B"] - 0.5) < 1e-9      # group {A, B}
+    assert abs(q.shares["C"] + q.shares["D"] - 0.5) < 1e-9      # group {C, D}
+    assert q.shares["B"] > q.shares["A"] and q.shares["C"] > q.shares["D"]
+    assert all(np.isnan(v) for v in q.p_best.values())
+    assert all(np.isnan(v) for v in q.expected_loss.values())
+    # within one group the ranking is reported as usual
+    assert not np.isnan(b.query(["A", "B"], draw=20000,
+                                rng=np.random.default_rng(0)).p_best["B"])
+
+
+def test_group_rule_reduces_to_the_paper_s_new_arm_rule_supplement_b():
+    """A group of one arm with no posterior is the rule the paper states: the
+    uniform share 1/|A|, with the observed arms scaled into the remainder."""
+    b = LogisticBandit()
+    b.update({"A": [50000, 1500], "B": [50000, 1650]})
+    q = b.query(["A", "B", "E"], draw=20000, rng=np.random.default_rng(2))
+    assert abs(q.shares["E"] - 1 / 3) < 1e-12
+    assert abs(q.shares["A"] + q.shares["B"] - 2 / 3) < 1e-9
+    assert np.isnan(q.p_best["E"]) and not np.isnan(q.p_best["B"])   # one group: ranked
+
+
+def test_the_bridge_keeps_one_group_supplement_b():
+    """The paper's bridge: batch one compares A with B, batch two B with C.
+    The shared arm keeps this inside one group -- C joins by augmentation --
+    and the joint posterior carries an A-versus-C comparison never run
+    directly, with the wider uncertainty the indirect route implies."""
+    b = LogisticBandit(reference="A")
+    b.update({"A": [20000, 600], "B": [20000, 660]})
+    b.update({"B": [20000, 660], "C": [20000, 700]})
+    assert len(b.groups()) == 1 and sorted(b.groups()[0]) == ["A", "B", "C"]
+    # marginals come from the covariance, not from a precision sub-block
+    cov = b.covariance()
+    i, j = b.action_list.index("B"), b.action_list.index("C")
+    sd_ab = float(np.sqrt(cov[i, i]))                          # run directly, batch one
+    sd_bc = float(np.sqrt(cov[i, i] + cov[j, j] - 2 * cov[i, j]))   # batch two
+    sd_ac = float(np.sqrt(cov[j, j]))                          # never run directly
+    # A was not in batch two, so its comparison with B is what batch one left it
+    assert abs(sd_ab - 0.05729) < 1e-4
+    # the indirect route carries both batches' uncertainty
+    assert sd_ac > sd_ab and sd_ac > sd_bc
+    assert abs(sd_ac - np.hypot(sd_ab, sd_bc)) < 1e-4
+    q = b.query(["A", "B", "C"], draw=20000, rng=np.random.default_rng(0))
+    assert not np.isnan(q.p_best["C"]) and abs(sum(q.shares.values()) - 1) < 1e-9
+
+
+def test_a_batch_joining_two_separate_groups_is_refused_supplement_b():
+    """Two groups initialized independently carry contrast priors centred on
+    their own arm sets.  Joining them is not a construction the paper gives,
+    so the batch is refused rather than fitted on an invented one."""
+    b = LogisticBandit()
+    b.update({"A": [10000, 300], "B": [10000, 330]})
+    b.update({"C": [10000, 350], "D": [10000, 300]})
+    assert len(b.groups()) == 2
+    with pytest.raises(ValueError, match="separate groups"):
+        b.update({"B": [10000, 330], "C": [10000, 350]})
+    # the refusal leaves both states exactly as they were
+    assert [sorted(g) for g in b.groups()] == [["A", "B"], ["C", "D"]]

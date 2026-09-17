@@ -39,6 +39,30 @@ pass `contrast_prior="flat"`.
 - `docs/RESEARCH_PLAN.md` re-synced with the research repository: the
   pre-registration record now runs H1-H27, including the symmetric-default
   registrations (H13-H19c) that the paper's supplements cite.
+- Separate experiment groups in one bandit (Supplement B). A batch that
+  shares no arm with the state used to fail with a shape error; it now starts
+  a group of its own -- a second state, with no covariance to the first,
+  because no comparison links them. `groups()` lists them and `known_arms()`
+  reports every arm held.
+- The paper's bridge case is unaffected and needs nothing new: a batch that
+  shares an arm with the state stays inside that group, and the newcomer
+  joins by augmentation, which is how the joint posterior comes to carry a
+  comparison never run directly.
+- A batch serving arms of two separate groups raises `ValueError`. Joining
+  states that were initialized independently, each with a contrast prior
+  centred on its own arm set, is not a construction the paper gives, so the
+  batch is refused rather than fitted on an invented one.
+- A query may span groups: Supplement B's new-arm rule, read for a group
+  rather than a single arm, gives each group traffic in proportion to its
+  size and lets it allocate inside itself by its own winner probabilities.
+  An arm with no posterior is a group of one, which is the rule exactly as
+  the paper states it, so a query over one group and some brand-new arms
+  behaves as before. Because "best" is defined only among arms a batch has
+  compared, `p_best` and `expected_loss` are `nan` throughout a query that
+  spans groups, so a stopping rule cannot read a ranking across them.
+  `query()` with no arms allocates over every arm held. The single-state
+  attributes (`mu`, `sigma_inv`, `action_list`, `contrasts()`, ...) report
+  the primary group, which is the whole state in the usual one-group case.
 
 ## 2.2.0 (2026-09)
 
