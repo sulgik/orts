@@ -631,8 +631,49 @@ def _reexpress(mu: np.ndarray, sigma_inv: np.ndarray, old: List[str], new: List[
         to_new[i, j_ref] = -1.0
     to_new[-1, j_ref] = 1.0
     T = to_new.dot(to_logodds)
+    if len(new) < len(old):
+        # Dropping arms is marginalization, and marginalization lives in the
+        # covariance, not the precision: cutting coordinates out of a precision
+        # matrix conditions on them instead, which understates the remaining
+        # uncertainty (paper, Supplement A).  So map the covariance and invert
+        # back, keeping the flat directions flat -- a direction the state knows
+        # nothing about has infinite variance, and its image must come back
+        # with zero precision rather than a large one.
+        return T.dot(mu), _precision_from_covariance(T.dot(pinv(sigma_inv)).dot(T.T),
+                                                     T.dot(_null_space(sigma_inv)))
     T_inv = np.rint(pinv(T))                 # entries are exactly 0 or +-1
     return T.dot(mu), T_inv.T.dot(sigma_inv).dot(T_inv)
+
+
+def _null_space(a: np.ndarray) -> np.ndarray:
+    """Orthonormal basis (columns) of the null space of ``a``."""
+    _, s, vt = np.linalg.svd(a)
+    tol = max(max(a.shape) * (s[0] if s.size else 0.0) * np.finfo(float).eps, 1e-12)
+    sv = np.zeros(vt.shape[0])
+    sv[:len(s)] = s
+    return vt[sv <= tol].T
+
+
+def _precision_from_covariance(cov: np.ndarray, flat: np.ndarray) -> np.ndarray:
+    """Invert a covariance that is proper only on the complement of ``flat``.
+
+    ``flat`` holds (not necessarily orthonormal) directions of infinite
+    variance, which ``cov`` cannot represent.  The precision is supported on
+    their orthogonal complement: it is inverted there and zero along them.
+    """
+    cov = 0.5 * (cov + cov.T)
+    if flat.size:
+        q, r = np.linalg.qr(flat)
+        keep = np.abs(np.diag(r)) > 1e-10 * max(1.0, float(np.abs(r).max()))
+        q = q[:, keep] if keep.any() else np.zeros((len(cov), 0))
+        basis = _null_space(q.T) if q.shape[1] else np.eye(len(cov))
+    else:
+        basis = np.eye(len(cov))
+    if basis.shape[1] == 0:
+        return np.zeros_like(cov)
+    inner = pinv(basis.T.dot(cov).dot(basis))
+    out = basis.dot(inner).dot(basis.T)
+    return 0.5 * (out + out.T)
 
 
 def _merge(components: List[_Component]) -> _Component:

@@ -305,3 +305,26 @@ def test_a_linking_batch_merges_two_groups_supplement_b():
     assert abs(b.get_par(["D", "C"])[0][0] - d_vs_c) < 1e-3
     shares = b.query(["A", "B", "C", "D"], draw=20000, rng=np.random.default_rng(1)).shares
     assert abs(sum(shares.values()) - 1) < 1e-9 and shares["C"] > shares["D"]
+
+
+def test_a_subset_query_uses_the_marginal_not_the_conditional_supplement_a():
+    """Leaving arms out of a query marginalizes them away; it does not
+    condition on them.  Supplement A: marginalization uses the covariance
+    block, not the precision block."""
+    b = LogisticBandit(reference="A")
+    b.update({"A": [20000, 600], "B": [20000, 660]})
+    b.update({"B": [20000, 660], "C": [20000, 700]})
+    assert b.action_list == ["B", "C", "A"]
+
+    cov = b.covariance()                              # full state: the reference
+    i = b.action_list.index("C")
+    marginal_sd = float(np.sqrt(cov[i, i]))
+    mu, sigma_inv = b.get_par(["C", "A"])
+    subset_sd = float(np.sqrt(np.linalg.pinv(sigma_inv)[0, 0]))
+    assert abs(subset_sd - marginal_sd) < 1e-9
+    assert abs(float(mu[0]) - float(b.get_par(b.action_list)[0][i])) < 1e-9
+
+    # and the query's p_best is what drawing that marginal directly gives
+    p_best = b.query(["C", "A"], draw=400000, rng=np.random.default_rng(7)).p_best["C"]
+    direct = np.random.default_rng(7).normal(mu[0], marginal_sd, 400000)
+    assert abs(p_best - float((direct > 0).mean())) < 5e-3
