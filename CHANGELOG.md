@@ -10,10 +10,18 @@ what this reference implementation does.
 the symmetric proper prior of Supplement A — latent arm effects
 `N(0, tau^2)` with Algorithm 1's `tau = sqrt(2)`, so every pairwise log-odds
 contrast has prior sd 2, every arm prior winner probability `1/K`, and
-neither depends on which arm is the reference. Allocations from a first
-batch will differ from 2.2's, most visibly on sparse or separated batches,
-which the default now fits instead of skipping. To reproduce 2.2 exactly,
+neither depends on which arm is the reference. To reproduce 2.2 exactly,
 pass `contrast_prior="flat"`.
+
+The prior enters at R1, so it changes nothing until a batch has been seen.
+The first batch still goes out on Algorithm 1's uniform start-up allocation,
+whatever the prior is set to. What differs from 2.2 is every allocation
+computed after a batch has been absorbed. Where events are plentiful the
+data swamps the prior: at 30,000 exposures and about 300 events an arm, the
+carried contrasts differ from the flat prior's by under 0.0002 in log odds.
+The difference is large where a batch is sparse or an arm is separated,
+because the default fits a batch the flat prior has no finite fit for and
+has to skip.
 
 - `contrast_prior` selects `"symmetric"` (default), `"flat"` (the historical
   zero-precision option) or `"independent"`; `arm_effect_prior_sd` is `tau`
