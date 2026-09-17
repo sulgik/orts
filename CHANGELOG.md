@@ -35,6 +35,12 @@ pass `contrast_prior="flat"`.
   `Allocation` is what comes back, whereas only A1 is the Thompson draw and
   `aggressive != 1` is not Thompson sampling at all. `contrast_draws` still
   exposes A1 on its own. `query` keeps working as a deprecated alias.
+- Dropping arms from a state marginalizes them instead of conditioning on
+  them. `_reexpress` mapped the precision directly, which is exact for a
+  re-referencing or reordering but not when arms are dropped, so every subset
+  call, `drop()` and `remove_not_observed` reported less uncertainty than the
+  state holds (paper, Supplement A). The subset path now carries the
+  covariance and keeps the flat directions flat.
 - Paper cross-references throughout the package, examples, notebook and
   README updated to the current manuscript: decay is Section 5.1, the
   diagnostics Section 4.2, changing arm sets Section 6.1, the warm start
