@@ -270,3 +270,38 @@ def test_proper_prior_for_a_separated_new_arm_supplement_c():
         assert b.update({"A": [2000, 60], "B": [2000, 66], "D": [2000, 0]}) is True
     assert abs(proper.contrasts()["D"][0]) < abs(flat.contrasts()["D"][0])
     assert proper.contrasts()["D"][1] < flat.contrasts()["D"][1]
+
+
+def test_disconnected_batch_starts_its_own_group_supplement_b():
+    b = LogisticBandit()
+    b.update({"A": [10000, 300], "B": [10000, 330]})
+    assert b.update({"C": [10000, 350], "D": [10000, 300]}) is True
+    assert [sorted(g) for g in b.groups()] == [["A", "B"], ["C", "D"]]
+    # each group is a posterior of its own; neither knows the other's arms
+    assert abs(sum(b.query(["A", "B"], draw=20000, rng=np.random.default_rng(0)
+                           ).shares.values()) - 1) < 1e-9
+    with pytest.raises(ValueError, match="separate groups"):
+        b.query(["A", "C"])
+    with pytest.raises(ValueError, match="separate groups"):
+        b.query()                                     # no single allocation spans both
+
+
+def test_a_linking_batch_merges_two_groups_supplement_b():
+    b = LogisticBandit()
+    b.update({"A": [10000, 300], "B": [10000, 330]})
+    b.update({"C": [10000, 350], "D": [10000, 300]})
+    within_before = b.get_par(["A", "B"])[0][0]
+    sd_before = b.contrast_sd()["B"]
+    assert b.update({"B": [10000, 330], "C": [10000, 350]}) is True
+    assert len(b.groups()) == 1 and sorted(b.groups()[0]) == ["A", "B", "C", "D"]
+    # the merge is flat between the groups: it carries each group's own
+    # contrasts over untouched and lets the linking batch supply B vs C
+    assert abs(b.get_par(["A", "B"])[0][0] - within_before) < 1e-9
+    assert abs(b.contrast_sd()["B"] - sd_before) < 1e-9
+    link = np.log(350 / 9650) - np.log(330 / 9670)
+    assert abs(b.get_par(["C", "B"])[0][0] - link) < 1e-3
+    # and D, seen only in the second group, is now comparable to A through it
+    d_vs_c = np.log(300 / 9700) - np.log(350 / 9650)
+    assert abs(b.get_par(["D", "C"])[0][0] - d_vs_c) < 1e-3
+    shares = b.query(["A", "B", "C", "D"], draw=20000, rng=np.random.default_rng(1)).shares
+    assert abs(sum(shares.values()) - 1) < 1e-9 and shares["C"] > shares["D"]
