@@ -73,7 +73,7 @@ class DiscountedTSPar(TSPar):
     ``(1 - discount)^k``.  Tempering a Beta density is exactly this count
     discounting, so ``discount`` here and ``decay`` in ``LogisticBandit``
     carry the same effective memory of roughly ``1/discount`` batches
-    (paper, Section 2.3; Raj and Kalyani 2017).
+    (paper, Section 5.1; Raj and Kalyani 2017).
     """
 
     def __init__(self, discount: float) -> None:

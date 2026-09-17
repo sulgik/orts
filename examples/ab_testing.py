@@ -1,8 +1,8 @@
 """A migration and a stopping rule, end to end.
 
 An incumbent Beta-Bernoulli service is replaced by OR-TS with a warm start
-(paper, Supplement H), then run with the default stopping and dropping rule
-of Section 6.1: drop an arm whose probability of being best stays below a
+(paper, Supplement D), then run with the default stopping and dropping rule
+of Supplement G: drop an arm whose probability of being best stays below a
 floor for several batches, stop when the leader's probability exceeds a
 target and its expected loss is below what the business will forgo.
 
