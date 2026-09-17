@@ -115,6 +115,9 @@ anything.
 | aggressiveness γ (Section 5.2) and floors (Supplement G) | `query(arms, aggressive=γ, floor=f)` |
 | changing arm sets (Section 6.1), the transformations (Supplement B) | any arm set in `query(arms)`; `set_reference()`, `drop()`, `get_par()` |
 | symmetric augmentation of a new arm (Supplement B) | automatic in `update`; the newcomer joins the joint state |
+| independent experiment groups (Supplement B) | automatic in `update`; `groups()` lists them, and a batch joining two raises |
+| the bridge: a shared arm carries an indirect comparison (Section 6.1, Supplement B) | automatic; the newcomer joins the group by augmentation |
+| the new-arm traffic rule, `1/\|A\|` each (Section 6.1, Supplement B) | `query` gives it to an arm with no posterior, and to each group it spans |
 | warm start from a Beta-Bernoulli service (Supplement D, algebra in G) | `LogisticBandit.from_beta_posteriors({arm: (a, b)})` |
 | skipped batches: no events or no non-events (Algorithm 1, Supplement A) | `update` returns `False` and leaves the state |
 | start-up allocation (Algorithm 1) | before any fit, `query` returns the uniform allocation |
