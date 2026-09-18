@@ -3,7 +3,7 @@
 Reference implementation of the procedure described in
 
     S. Kim (2026). Odds-Ratio Thompson Sampling: A Specification and Design
-    Guide for Contrast-Based Multi-Armed Bandits.
+    Guide for Contrast-Based Multi-Armed Bandits. arXiv:2609.19709.
     S. Kim and K. Kim (2020). Odds-ratio Thompson sampling to control for
     time-varying effect. arXiv:2003.01905.
 

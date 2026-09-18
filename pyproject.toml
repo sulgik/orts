@@ -33,6 +33,7 @@ examples = ["matplotlib>=3.5"]
 [project.urls]
 Repository = "https://github.com/sulgik/orts"
 Issues = "https://github.com/sulgik/orts/issues"
+"Paper (2026)" = "https://arxiv.org/abs/2609.19709"
 "Preprint (2020)" = "https://arxiv.org/abs/2003.01905"
 
 [tool.setuptools]

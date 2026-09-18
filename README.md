@@ -1,6 +1,7 @@
 # OR-TS — Odds-Ratio Thompson Sampling
 
 [![Tests](https://github.com/sulgik/orts/actions/workflows/tests.yml/badge.svg)](https://github.com/sulgik/orts/actions/workflows/tests.yml)
+[![arXiv](https://img.shields.io/badge/arXiv-2609.19709-b31b1b.svg)](https://arxiv.org/abs/2609.19709)
 [![PyPI](https://img.shields.io/pypi/v/orts.svg)](https://pypi.org/project/orts/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/sulgik/orts/blob/main/notebooks/orts_quickstart.ipynb)
@@ -12,7 +13,7 @@ outcomes whose memory is the **joint posterior of the treatment contrasts**
 (log odds ratios) rather than each arm's absolute event rate.
 
 > S. Kim (2026). *Odds-Ratio Thompson Sampling: A Specification and Design
-> Guide for Contrast-Based Multi-Armed Bandits.* Manuscript.
+> Guide for Contrast-Based Multi-Armed Bandits.* [arXiv:2609.19709](https://arxiv.org/abs/2609.19709).
 > S. Kim and K. Kim (2020). *Odds-ratio Thompson sampling to control for
 > time-varying effect.* [arXiv:2003.01905](https://arxiv.org/abs/2003.01905).
 
@@ -266,7 +267,7 @@ logisticbandit.py, ts.py, utils.py   deprecated import shims
 ```
 
 The registered simulations, dataset analyses and manuscript of the 2026
-paper live in a separate research repository; this package is the
+paper ([arXiv:2609.19709](https://arxiv.org/abs/2609.19709)) live in a separate research repository; this package is the
 implementation they run. The pre-registration record those runs follow,
 with each hypothesis's prediction and failure criterion written before
 the run, is published here as `docs/RESEARCH_PLAN.md`; the paper's
@@ -275,11 +276,14 @@ supplements cite its labels H1-H27 next to the run ids.
 ## Citing
 
 ```bibtex
-@unpublished{kim2026orts,
-  author = {Kim, Sulgi},
-  title  = {Odds-Ratio Thompson Sampling: A Specification and Design Guide
-            for Contrast-Based Multi-Armed Bandits},
-  year   = {2026}
+@misc{kim2026orts,
+  author        = {Kim, Sulgi},
+  title         = {Odds-Ratio Thompson Sampling: A Specification and Design Guide
+                   for Contrast-Based Multi-Armed Bandits},
+  year          = {2026},
+  eprint        = {2609.19709},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/2609.19709}
 }
 @article{kim2020orts,
   author  = {Kim, Sulgi and Kim, K.},
