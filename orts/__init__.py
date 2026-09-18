@@ -36,4 +36,4 @@ __all__ = [
     "LogisticBandit", "Allocation", "TSPar", "DiscountedTSPar",
     "logistic", "logit", "estimate", "is_pos_semidef", "diagnostics", "priors",
 ]
-__version__ = "2.3.0"
+__version__ = "2.3.1"

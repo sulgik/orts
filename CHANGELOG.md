@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.3.1 (2026-09)
+
+Package metadata only; the code is 2.3.0's.
+
+- The 2026 paper is cited by its arXiv id,
+  [2609.19709](https://arxiv.org/abs/2609.19709), in the README, the package
+  docstring and the notebook, with an arXiv BibTeX entry and a `Paper (2026)`
+  project URL. 2.3.0's PyPI page still called it a manuscript.
+- Python classifiers for 3.9 to 3.14 and an `Issues` project URL.
+
 ## 2.3.0 (2026-09)
 
 Caught up with the 2026 manuscript's symmetric-default revision, which makes
