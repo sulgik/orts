@@ -234,6 +234,35 @@ seed the contrast prior: `LogisticBandit.from_beta_posteriors({arm: (a, b)})`
 inherits its contrast beliefs and, at the first update, discards its level
 belief, which is the point.
 
+## Contexts: one model over cells (experimental)
+
+`ContextualLogisticBandit` extends the memory rule to discrete contexts
+(segments, tree leaves, crossed attribute levels). It is not in the paper.
+Each batch is one logistic fit, `logit p = alpha[cell] + theta[arm, cell]`,
+with a fresh flat intercept per cell and batch and the carried joint
+posterior of every arm-by-cell contrast as the prior. A cell's base rate
+and anything that shifts its arms together are discarded, as before.
+
+```python
+from orts import ContextualLogisticBandit
+
+bandit = ContextualLogisticBandit(arms=["A", "B", "C"], cells=["mobile", "desktop"])
+bandit.update({"mobile":  {"A": [9000, 270], "B": [9000, 300], "C": [9000, 280]},
+               "desktop": {"A": [3000, 150], "B": [3000, 140], "C": [3000, 170]}})
+shares = bandit.allocate(floor=0.01)       # {cell: Allocation}
+```
+
+The cells are tied by a hierarchical prior whose one parameter,
+`interaction_sd`, says how far a cell's contrasts may sit from the contrasts
+all cells share. Near zero it is the non-contextual OR-TS; large, it is an
+independent OR-TS per cell. By default it is re-estimated after every batch
+by marginal likelihood, so cells that agree pool and cells that disagree
+separate. With one cell the class reproduces `LogisticBandit`.
+
+`benchmarks/growthbook/ctxbench.py` runs it next to GrowthBook's contextual
+bandit engine. Decay, arms or cells that join later, and continuous
+covariates are not covered yet.
+
 ## Examples and tests
 
 ```bash
@@ -254,6 +283,7 @@ reference transformation, the warm start, the diagnostics.
 ```
 orts/                 the package
   logisticbandit.py   LogisticBandit: OR-TS (default) and Full-TS
+  contextual.py       ContextualLogisticBandit: OR-TS over arm-by-cell contrasts (experimental)
   ts.py               TSPar, DiscountedTSPar
   diagnostics.py      batch contrasts, excess variance, R, implied decay
   utils.py            the per-batch Laplace fit

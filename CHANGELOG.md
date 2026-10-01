@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.4.0 (2026-10)
+
+- `ContextualLogisticBandit` (experimental, not in the paper): OR-TS over
+  discrete context cells. One logistic fit per batch with a fresh flat
+  intercept per cell, the joint posterior of the arm-by-cell contrasts as
+  the carried state, and a hierarchical prior tying the cells together.
+  Its `interaction_sd` is re-estimated after each batch by marginal
+  likelihood unless a number is given. With one cell it reproduces
+  `LogisticBandit`.
+- `benchmarks/growthbook/ctxbench.py` runs it against GrowthBook's own
+  contextual bandit engine (`packages/stats-ts`).
+
 ## 2.3.1 (2026-09)
 
 Package metadata only; the code is 2.3.0's.

@@ -52,7 +52,71 @@ The calibration is off as well. On the allocation GrowthBook's bandit produced i
 the period-weighted mean's actual variance is 2.0–2.3 times the reported one for the trailing
 variations and 1.2 times for the leader, because the binomial path reports `sum_squares = sum`.
 
+## Contextual bandits
+
+`ctxbench.py` does the same for contexts. GrowthBook's contextual engine is TypeScript
+(`packages/stats-ts/src/contextualBanditWeights.ts`): it takes the decision metric pooled over the
+whole run per (context, variation), fits a greedy regression tree over the context attributes, and
+runs Gaussian Thompson sampling inside each leaf. `gb_contextual_driver.ts` wraps that function so
+the benchmark can call the engine itself over stdin. It is compared with
+`orts.ContextualLogisticBandit`, one logistic model over arm-by-cell contrasts with a fresh
+intercept per cell and period.
+
+```bash
+git -C growthbook checkout b70f8c77d   # main, 2026-10-01; bandits.py is unchanged since 48658cc
+git -C growthbook sparse-checkout set packages/stats packages/stats-ts packages/shared
+npm install esbuild @stdlib/stats@0.1.1
+GB=$PWD/growthbook/packages
+npx esbuild gb_contextual_driver.ts --bundle --platform=node --format=cjs --outfile=driver.cjs \
+  '--external:@stdlib/*' --alias:stats-ts=$GB/stats-ts --alias:shared/constants=$GB/shared/src/constants.ts \
+  --alias:shared/experiments=$GB/shared/src/experiments/contextual-bandit-condition.ts \
+  --alias:shared/types=$GB/shared/types --alias:shared=$GB/shared/src
+pip install -e growthbook/packages/stats -e ../..
+python ctxbench.py --driver driver.cjs --reps 20
+```
+
+Four arms with main log-odds contrasts 0 to 0.15 and two attributes, region (3 levels) and device
+(2 levels), so six cells holding 35% down to 6% of traffic. A cell's contrasts are the main ones
+plus a region effect and a device effect per arm, drawn once per run with sd 0.2, or all zero when
+the best arm is the same everywhere. That structure is additive in the attributes, which is what a
+tree splitting one attribute at a time is built for. Cells differ in base rate (3%, sd 0.3 on the
+log-odds), 40 periods of 20,000 users, a 1% floor for every policy, `maxLeaves` 8. Regret is
+against each cell's own best arm; each policy sees the same 20 environment draws.
+
+| | best arm differs by cell | one best arm everywhere | differs, common shifts (sd 0.3) | one best arm, common shifts |
+|---|---|---|---|---|
+| Contextual OR-TS | 819.7 | 336.9 | 820.6 | 364.6 |
+| GrowthBook contextual (as shipped) | 1221.8 | 526.1 | 1453.3 | 768.2 |
+| GrowthBook non-contextual (as shipped) | 3296.6 | 401.8 | 3468.7 | 415.7 |
+| OR-TS, context ignored | 3221.8 | 295.7 | 3384.1 | 364.9 |
+| OR-TS, independent per cell | 798.7 | 728.0 | 846.6 | 691.3 |
+| Contextual OR-TS, `interaction_sd` 0.02 | 2022.3 | 337.8 | 1987.8 | 295.5 |
+| Contextual OR-TS, `interaction_sd` 0.25 | 807.2 | 692.7 | 847.5 | 668.1 |
+
+GrowthBook contextual minus contextual OR-TS: +402.0 ± 93.9 (4.3 SE, higher in 15/20) where the
+best arm differs, +189.1 ± 57.1 (3.3 SE, 17/20) where it does not, and with common shifts
++632.8 ± 115.9 (5.5 SE, 20/20) and +403.6 ± 116.6 (3.5 SE, 19/20).
+
+What the rows say:
+
+- **No fixed amount of pooling works in both worlds.** An independent OR-TS per cell is as good as
+  anything when the best arm differs (799) and wastes the data when it does not (728 against 296
+  for ignoring the context). `interaction_sd` 0.02 is the reverse. Estimating it by marginal
+  likelihood after each batch lands on the better end both times (820 and 337).
+- **GrowthBook's tree splits on the outcome level, not on the contrast.** Where one arm is best
+  everywhere it still ends with 4.0 leaves, because the cells differ in base rate, and each leaf
+  then learns the same ranking from a fraction of the data. With the base-rate spread set to zero
+  it keeps one leaf and does well: 226 against 361 for contextual OR-TS over 10 runs. The logistic
+  model gives each cell its own intercept, so a base-rate difference costs it nothing and only a
+  difference in contrasts separates cells.
+- **The contextual engine has no period weighting.** Its input is pooled over the run
+  (`getBanditDates` returns nothing for a contextual bandit, so the period reduction is skipped), so a common shift biases the pooled
+  rates as it does for the unweighted non-contextual bandit above. Its regret rises from 1222 to
+  1453 and from 526 to 768 under shifts; contextual OR-TS stays at 820 and goes from 337 to 365.
+
 ## Limits
 
-One environment, not a sweep; binomial metrics only; and the SQL reduction is reconstructed, not
-run.
+One environment per benchmark, not a sweep; binomial metrics only; and the non-contextual SQL
+reduction is reconstructed, not run. In the contextual benchmark the cells are the full cross of
+the attribute levels, six of them. With many attributes that cross is too fine to use directly,
+and the cells would have to come from somewhere, such as the leaves of a tree like GrowthBook's.

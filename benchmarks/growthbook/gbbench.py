@@ -48,13 +48,13 @@ ARMS = [f"a{i}" for i in range(K)]
 
 def gb_row(n: np.ndarray, s: np.ndarray, weight_by_period: bool, binomial: bool):
     """The statistics BanditsSimple receives. n, s: (periods, K) users and conversions."""
-    n_v = n.sum(0)
+    n_v, arms = n.sum(0), range(n.shape[1])
     if not weight_by_period:
         return [SampleMeanStatistic(n=int(n_v[k]), sum=float(s[:, k].sum()),
-                                    sum_squares=float(s[:, k].sum())) for k in range(K)]
+                                    sum_squares=float(s[:, k].sum())) for k in arms]
     w = n.sum(1) / n.sum()  # the same period weights for every variation
     out = []
-    for k in range(K):
+    for k in arms:
         ok = n[:, k] > 0  # SQL groups by (variation, period): absent periods drop out
         m = np.where(ok, s[:, k] / np.maximum(n[:, k], 1), 0.0)
         var = np.where(n[:, k] > 1, m * (1 - m) * n[:, k] / np.maximum(n[:, k] - 1, 1), 0.0)
