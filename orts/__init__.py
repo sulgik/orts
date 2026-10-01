@@ -16,6 +16,10 @@ LogisticBandit   OR-TS (default) and Full-TS: a reference-coded logistic model
                  arm sets, warm starts and stopping-rule quantities are methods
                  or arguments on this class.  ``allocate(arms)`` is the action:
                  name the arms that will be live next and get an Allocation.
+ContextualLogisticBandit
+                 Experimental.  OR-TS over arm-by-cell contrasts: one logistic
+                 model with a fresh flat intercept per cell and batch, cells
+                 tied together by a hierarchical contrast prior.
 priors           The symmetric proper contrast prior the default starts from,
                  and Supplement B's augmentation for an arm that joins later.
 Allocation       The answer to one action step: shares, P(best), expected loss.
@@ -27,13 +31,14 @@ diagnostics      Batch-level contrasts with sampling bands, excess variance,
 """
 
 from .logisticbandit import LogisticBandit, Allocation
+from .contextual import ContextualLogisticBandit
 from . import priors
 from .ts import TSPar, DiscountedTSPar
 from .utils import logistic, logit, estimate, is_pos_semidef
 from . import diagnostics
 
 __all__ = [
-    "LogisticBandit", "Allocation", "TSPar", "DiscountedTSPar",
+    "LogisticBandit", "ContextualLogisticBandit", "Allocation", "TSPar", "DiscountedTSPar",
     "logistic", "logit", "estimate", "is_pos_semidef", "diagnostics", "priors",
 ]
-__version__ = "2.3.1"
+__version__ = "2.4.0"
