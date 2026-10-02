@@ -1,5 +1,8 @@
 # OR-TS — Odds-Ratio Thompson Sampling
 
+[![English](https://img.shields.io/badge/English-blue?style=for-the-badge)](https://github.com/sulgik/orts/blob/main/README.md)
+[![한국어](https://img.shields.io/badge/%ED%95%9C%EA%B5%AD%EC%96%B4-lightgrey?style=for-the-badge)](https://github.com/sulgik/orts/blob/main/README.ko.md)
+
 [![Tests](https://github.com/sulgik/orts/actions/workflows/tests.yml/badge.svg)](https://github.com/sulgik/orts/actions/workflows/tests.yml)
 [![arXiv](https://img.shields.io/badge/arXiv-2609.19709-b31b1b.svg)](https://arxiv.org/abs/2609.19709)
 [![PyPI](https://img.shields.io/pypi/v/orts.svg)](https://pypi.org/project/orts/)
