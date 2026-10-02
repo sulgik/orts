@@ -194,8 +194,7 @@ arm에 일정 비율을 보장하며, 승자 빈도 0은 거듭제곱 사상 아
 from orts import diagnostics as dg
 
 (alpha, var_alpha), contrasts = dg.batch_contrasts(obs_t, reference="A")   # 배치 하나
-# 배치들에 걸쳐 alpha_t, var_alpha_t, contrasts["B"] 를 모은 뒤
-R = dg.level_contrast_ratio(alphas, alpha_vars, betas, beta_vars)  # >>1: 수준은 움직이고 대비는 움직이지 않음
+# 배치들에 걸쳐 contrasts["B"] 를 모은 뒤
 w = dg.excess_sd(betas, beta_vars)                                # 잡음을 넘어서는 대비의 움직임
 lam = bandit.implied_decay(w)                                     # 그 움직임이 함의하는 감쇠
 ```
@@ -288,7 +287,7 @@ orts/                 패키지
   logisticbandit.py   LogisticBandit: OR-TS (기본값) 와 Full-TS
   contextual.py       ContextualLogisticBandit: arm-셀 대비에 대한 OR-TS (실험적)
   ts.py               TSPar, DiscountedTSPar
-  diagnostics.py      배치 대비, 초과 분산, R, 함의된 감쇠
+  diagnostics.py      배치 대비, 초과 분산, 함의된 감쇠
   utils.py            배치별 라플라스 적합
 examples/             실행 가능한 스크립트 (README 그림 생성기 포함)
 notebooks/            Colab 퀵스타트

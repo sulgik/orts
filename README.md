@@ -193,8 +193,7 @@ from logged counts alone, what Section 4.2 of the paper measures:
 from orts import diagnostics as dg
 
 (alpha, var_alpha), contrasts = dg.batch_contrasts(obs_t, reference="A")   # one batch
-# collect alpha_t, var_alpha_t and contrasts["B"] over batches, then
-R = dg.level_contrast_ratio(alphas, alpha_vars, betas, beta_vars)  # >>1: level moves, contrast does not
+# collect contrasts["B"] over batches, then
 w = dg.excess_sd(betas, beta_vars)                                # the contrast's movement beyond noise
 lam = bandit.implied_decay(w)                                     # the decay that movement implies
 ```
@@ -288,7 +287,7 @@ orts/                 the package
   logisticbandit.py   LogisticBandit: OR-TS (default) and Full-TS
   contextual.py       ContextualLogisticBandit: OR-TS over arm-by-cell contrasts (experimental)
   ts.py               TSPar, DiscountedTSPar
-  diagnostics.py      batch contrasts, excess variance, R, implied decay
+  diagnostics.py      batch contrasts, excess variance, implied decay
   utils.py            the per-batch Laplace fit
 examples/             runnable scripts, including the README figure generator
 notebooks/            the Colab quickstart
