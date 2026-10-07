@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- `allocate_from_rows`, `allocate_cells_from_rows`, `batches_from_rows` and
+  `replay`: from a table of per-period counts (a list of dicts, a
+  `sqlite3.Row` cursor, a pandas or polars DataFrame) to the next allocation,
+  with no state kept between runs. The periods are folded in sorted order and
+  arms and cells in name order, so the result depends only on the table, and
+  `seed` makes a scheduled run reproducible.
+- `examples/sql/period_counts.sql`, the query that builds that table from an
+  exposure log and a conversion log, and `examples/from_warehouse.py`, which
+  runs it end to end on SQLite. Only the SQLite version is tested.
+
 ## 2.4.0 (2026-10)
 
 - `ContextualLogisticBandit` (experimental, not in the paper): OR-TS over
