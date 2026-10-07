@@ -1,0 +1,38 @@
+cff-version: 1.2.0
+message: "If you use orts, please cite the 2026 paper."
+title: "orts: Odds-Ratio Thompson Sampling"
+type: software
+authors:
+  - family-names: Kim
+    given-names: Sulgi
+    email: sulgik@gmail.com
+repository-code: "https://github.com/sulgik/orts"
+url: "https://pypi.org/project/orts/"
+license: MIT
+keywords:
+  - multi-armed bandit
+  - Thompson sampling
+  - A/B testing
+  - adaptive experiment
+  - odds ratio
+  - logistic regression
+preferred-citation:
+  type: article
+  authors:
+    - family-names: Kim
+      given-names: Sulgi
+  title: "Odds-Ratio Thompson Sampling: A Specification and Design Guide for Contrast-Based Multi-Armed Bandits"
+  journal: "arXiv preprint arXiv:2609.19709"
+  year: 2026
+  url: "https://arxiv.org/abs/2609.19709"
+references:
+  - type: article
+    authors:
+      - family-names: Kim
+        given-names: Sulgi
+      - family-names: Kim
+        given-names: K.
+    title: "Odds-ratio Thompson sampling to control for time-varying effect"
+    journal: "arXiv preprint arXiv:2003.01905"
+    year: 2020
+    url: "https://arxiv.org/abs/2003.01905"
