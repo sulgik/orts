@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.5.0 (2026-10)
 
 - `allocate_from_rows`, `allocate_cells_from_rows`, `batches_from_rows` and
   `replay`: from a table of per-period counts (a list of dicts, a
