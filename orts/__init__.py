@@ -48,4 +48,4 @@ __all__ = [
     "TSPar", "DiscountedTSPar",
     "logistic", "logit", "estimate", "is_pos_semidef", "diagnostics", "priors",
 ]
-__version__ = "2.4.0"
+__version__ = "2.5.0"
