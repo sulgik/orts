@@ -105,6 +105,37 @@ arm은 첫 배치의 첫 arm이거나 `LogisticBandit(reference="control")` 로
 `{arm: (mean, sd)}` 로 읽어 주고, `set_reference` 와 `drop` 은 아무것도
 잃지 않고 상태의 기준을 바꾸거나 상태를 접습니다.
 
+## 웨어하우스 표에서 바로 쓰기
+
+예약 작업은 보통 실행 사이에 상태를 남기지 않는다. 실행할 때마다 실험의 이력을
+기간×arm 한 행씩의 표로 읽고, 지금 각 arm 에 몇 퍼센트를 줄지 답해야 한다.
+`allocate_from_rows` 가 이것을 한 번의 호출로 한다. 기간을 정렬한 순서로 접으므로
+같은 표는 행 순서와 무관하게 같은 답을 준다.
+
+```python
+from orts import allocate_from_rows
+
+rows = [  # dict 리스트, sqlite3 행, pandas 나 polars DataFrame 모두 가능
+    {"period": "2026-10-01", "arm": "A", "exposures": 30000, "events": 300},
+    {"period": "2026-10-01", "arm": "B", "exposures": 30000, "events": 330},
+    {"period": "2026-10-02", "arm": "A", "exposures": 12000, "events": 150},
+    {"period": "2026-10-02", "arm": "B", "exposures": 18000, "events": 240},
+]
+q = allocate_from_rows(rows, floor=0.01, seed=0)
+q.shares          # {'A': 0.09, 'B': 0.91}
+```
+
+카운트는 누적이 아니라 기간별이어야 하고, 운영한 모든 기간이 표에 있어야 한다.
+`examples/sql/period_counts.sql` 은 노출 로그와 전환 로그에서 이런 표를 만든다.
+사용자를 첫 노출 기간에 한 번만 세고, 전환 창을 고정하고, 창이 아직 열린
+사용자는 뺀다. `examples/from_warehouse.py` 는 이것을 SQLite 로 처음부터 끝까지
+돌려 본다. 웨어하우스마다 다른 세 곳은 파일에 표시해 두었고, 테스트한 것은 SQLite
+판뿐이다.
+
+컨텍스트 열이 있으면 `allocate_cells_from_rows(rows, cell="segment")` 가 아래의
+실험적 컨텍스트 모형으로 `{셀: Allocation}` 을 돌려준다. `batches_from_rows` 와
+`replay` 는 그 안의 두 단계이며, 적합된 상태 자체가 필요할 때 쓴다.
+
 ## 논문의 용어와 코드에서의 위치
 
 | 논문 | 코드 |
@@ -286,6 +317,7 @@ pytest -q
 orts/                 패키지
   logisticbandit.py   LogisticBandit: OR-TS (기본값) 와 Full-TS
   contextual.py       ContextualLogisticBandit: arm-셀 대비에 대한 OR-TS (실험적)
+  history.py          allocate_from_rows 와 그 부속: 기간별 카운트 표에서 배분까지
   ts.py               TSPar, DiscountedTSPar
   diagnostics.py      배치 대비, 초과 분산, 함의된 감쇠
   utils.py            배치별 라플라스 적합

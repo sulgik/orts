@@ -20,6 +20,9 @@ ContextualLogisticBandit
                  Experimental.  OR-TS over arm-by-cell contrasts: one logistic
                  model with a fresh flat intercept per cell and batch, cells
                  tied together by a hierarchical contrast prior.
+allocate_from_rows, allocate_cells_from_rows, batches_from_rows, replay
+                 From a table of per-period counts to the next allocation with
+                 no state kept between runs; examples/sql/ has the query.
 priors           The symmetric proper contrast prior the default starts from,
                  and Supplement B's augmentation for an arm that joins later.
 Allocation       The answer to one action step: shares, P(best), expected loss.
@@ -32,13 +35,17 @@ diagnostics      Batch-level contrasts with sampling bands, excess variance,
 
 from .logisticbandit import LogisticBandit, Allocation
 from .contextual import ContextualLogisticBandit
+from .history import (allocate_from_rows, allocate_cells_from_rows, batches_from_rows,
+                      replay)
 from . import priors
 from .ts import TSPar, DiscountedTSPar
 from .utils import logistic, logit, estimate, is_pos_semidef
 from . import diagnostics
 
 __all__ = [
-    "LogisticBandit", "ContextualLogisticBandit", "Allocation", "TSPar", "DiscountedTSPar",
+    "LogisticBandit", "ContextualLogisticBandit", "Allocation",
+    "allocate_from_rows", "allocate_cells_from_rows", "batches_from_rows", "replay",
+    "TSPar", "DiscountedTSPar",
     "logistic", "logit", "estimate", "is_pos_semidef", "diagnostics", "priors",
 ]
 __version__ = "2.4.0"

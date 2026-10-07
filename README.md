@@ -105,6 +105,37 @@ any order or subset; `contrasts()` reads the state as `{arm: (mean, sd)}`;
 `set_reference` and `drop` re-base or fold the state without losing
 anything.
 
+## From a warehouse table
+
+A scheduled job usually keeps no state between runs. It reads the experiment's
+history from a table, one row per period and arm, and has to say what share each
+arm gets now. `allocate_from_rows` does that in one call, with the periods folded
+in sorted order, so the same table gives the same answer in any row order:
+
+```python
+from orts import allocate_from_rows
+
+rows = [  # a list of dicts, a sqlite3 row cursor, a pandas or polars DataFrame
+    {"period": "2026-10-01", "arm": "A", "exposures": 30000, "events": 300},
+    {"period": "2026-10-01", "arm": "B", "exposures": 30000, "events": 330},
+    {"period": "2026-10-02", "arm": "A", "exposures": 12000, "events": 150},
+    {"period": "2026-10-02", "arm": "B", "exposures": 18000, "events": 240},
+]
+q = allocate_from_rows(rows, floor=0.01, seed=0)
+q.shares          # {'A': 0.09, 'B': 0.91}
+```
+
+Counts are per period, not cumulative, and every period that was served belongs in
+the table. `examples/sql/period_counts.sql` produces such a table from an exposure
+log and a conversion log: each user counted once in the period of their first
+exposure, a fixed conversion window, users whose window is still open left out.
+`examples/from_warehouse.py` runs it end to end on SQLite. The query's three
+dialect-specific spots are marked in the file; only the SQLite version is tested.
+
+With a context column, `allocate_cells_from_rows(rows, cell="segment")` returns
+`{cell: Allocation}` from the experimental contextual model below. `batches_from_rows`
+and `replay` are the two steps inside, for when you want the fitted state itself.
+
 ## What the paper calls it, and where it is in the code
 
 | paper | code |
@@ -286,6 +317,7 @@ reference transformation, the warm start, the diagnostics.
 orts/                 the package
   logisticbandit.py   LogisticBandit: OR-TS (default) and Full-TS
   contextual.py       ContextualLogisticBandit: OR-TS over arm-by-cell contrasts (experimental)
+  history.py          allocate_from_rows and friends: a table of per-period counts to an allocation
   ts.py               TSPar, DiscountedTSPar
   diagnostics.py      batch contrasts, excess variance, implied decay
   utils.py            the per-batch Laplace fit
