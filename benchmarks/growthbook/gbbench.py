@@ -14,10 +14,13 @@ The SQL reduction, for variation v over periods p:
     main_sum_squares = N_v * (sum_p weight_p^2 * var_{v,p} / n_{v,p}) * (N_v - 1)
                        + N_v * (sum_p weight_p * mean_{v,p})^2
 
-For a binomial metric `base_statistic_from_metric_row` builds a `ProportionStatistic` from
-`main_sum` and the count only, so `main_sum_squares` is not used: `create_bandit_statistics` recasts
-it with `sum_squares = sum`. The "binomial" policy below follows that path; the "count" policy uses
-the SQL variance instead, as a diagnostic.
+Before the engine sees a bandit's metric, `process_experiment_results` changes a binomial metric's
+type to count, so the row reaches `create_bandit_statistics` as a `SampleMeanStatistic` carrying the
+SQL's `main_sum_squares`, the variance of the period-weighted mean. That is the path the product
+takes and the "as shipped" policy below. The "iid variance" policy instead builds the statistic the
+way a binomial metric would be built without that step, with `sum_squares = sum`; it is kept as a
+diagnostic of what the plain binomial variance would do, not as a description of the product. An
+earlier version of this file had the two labelled the other way round; see the README.
 
 Environment: K arms whose log-odds differ by fixed contrasts, all moved each period by a common
 shift (sd `sigma`); `sigma = 0` is the control. Each period serves N users by the current weights.
@@ -101,9 +104,9 @@ def orts():
 
 POLICIES = {
     "OR-TS": orts,
-    "GrowthBook as shipped (binomial, period-weighted)": growthbook,
+    "GrowthBook as shipped (period-weighted, SQL variance)": lambda: growthbook(binomial=False),
     "GrowthBook unweighted (pooled)": lambda: growthbook(weight_by_period=False),
-    "GrowthBook period-weighted, SQL variance [diagnostic]": lambda: growthbook(binomial=False),
+    "GrowthBook period-weighted, iid variance [diagnostic]": growthbook,
 }
 
 

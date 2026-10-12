@@ -1,13 +1,23 @@
 # OR-TS against GrowthBook's bandit engine
 
 `gbbench.py` runs GrowthBook's own bandit code (`gbstats`, `BanditsSimple`) next to OR-TS on a
-binomial metric, with and without a shift common to every arm. `calibration.py` checks the
-variance `gbstats` reports for its period-weighted mean.
+binomial metric, with and without a shift common to every arm. `calibration.py` asks how wrong the
+plain binomial variance would be for the period-weighted mean.
 
 GrowthBook's bandit reduces each variation's per-period data in SQL before `gbstats` sees it. That
 reduction is rebuilt in Python here from `packages/back-end/src/integrations/sql/ctes/bandit-statistics-cte.ts`;
 the docstring of `gbbench.py` gives the formulas and the statistic path a binomial metric takes.
 It is a reading of the query, so please check it against the real one.
+
+**Correction (2026-10-12).** An earlier version of this page labelled the rows the other way round.
+It presented the plain binomial variance (`sum_squares = sum`) as what the product uses for a
+binomial metric, and the SQL's variance as a diagnostic. GrowthBook's statistician pointed out on
+[PR #7128](https://github.com/growthbook/growthbook/pull/7128) that `process_experiment_results`
+changes a binomial metric's type to count before the bandit engine runs, so the product uses the
+SQL's variance, which is the variance of the period-weighted mean. The code path the PR fixed is
+not reached in the product; the PR now makes it raise. The rows below are relabelled, the numbers
+are unchanged, and the calibration finding that used to be here (reported variance half the
+actual one) is withdrawn, since it described a path the product does not take.
 
 ## Setup
 
@@ -34,23 +44,21 @@ is better; each policy sees the same 20 environment draws.
 | | common shifts (sd 0.3) | no shifts |
 |---|---|---|
 | OR-TS | 420.7 | 360.4 |
-| GrowthBook as shipped (binomial, period-weighted) | 565.4 | 548.8 |
+| GrowthBook as shipped (period-weighted, SQL variance) | 642.0 | 621.6 |
 | GrowthBook unweighted (pooled) | 798.2 | 400.0 |
-| GrowthBook period-weighted, SQL variance (diagnostic) | 642.0 | 621.6 |
+| GrowthBook period-weighted, iid variance (diagnostic) | 565.4 | 548.8 |
 
-GrowthBook as shipped minus OR-TS: +144.7 ± 32.6 (4.4 SE, OR-TS lower in 18/20) with shifts, and
-+188.4 ± 28.5 (6.6 SE, 19/20) without. Pooled and OR-TS are close without shifts (+39.6 ± 21.8,
+GrowthBook as shipped minus OR-TS: +221.3 ± 47.8 (4.6 SE, OR-TS lower in 19/20) with shifts, and
++261.1 ± 27.0 (9.7 SE, 19/20) without. Pooled and OR-TS are close without shifts (+39.6 ± 21.8,
 1.8 SE), which is the check that the harness is sound.
 
-Period weighting does its job under shifts (565 against 798 pooled). It costs efficiency otherwise
-(549 against 400): each period's mean is weighted by the period's share of all users, not by how
+Period weighting does its job under shifts (642 against 798 pooled). It costs efficiency otherwise
+(622 against 400): each period's mean is weighted by the period's share of all users, not by how
 many users that variation got in it, so a variation's thin periods count as much as its thick
-ones. Using the SQL's variance instead does not recover this, so the cost is the estimator rather
-than its calibration.
-
-The calibration is off as well. On the allocation GrowthBook's bandit produced in a no-shift run,
-the period-weighted mean's actual variance is 2.0–2.3 times the reported one for the trailing
-variations and 1.2 times for the leader, because the binomial path reports `sum_squares = sum`.
+ones. The diagnostic row shows that the plain binomial variance would lower regret (565 and 549),
+but only by understating the noise of the weighted mean; `calibration.py` puts that understatement
+at 2.0–2.3 times for the trailing variations. The product does not do this. The cost is the
+estimator, not its variance.
 
 ## Contextual bandits
 
