@@ -122,9 +122,74 @@ What the rows say:
   rates as it does for the unweighted non-contextual bandit above. Its regret rises from 1222 to
   1453 and from 526 to 768 under shifts; contextual OR-TS stays at 820 and goes from 337 to 365.
 
+## Contextual robustness (pre-registered)
+
+`ctxrobust.py` answers the two weak points of the contextual comparison above: one kind of
+heterogeneity (additive in the attributes) and six cells. The design, four hypotheses and their
+failure criteria were committed before any run, in `PREREG_contextual_robustness.md` (commit
+`406babe`). Everything below is judged against them as written. Same engine, commit and settings as
+`ctxbench.py`; 20 paired runs per scenario; regret against each cell's own best arm.
+
+```bash
+python ctxrobust.py --driver driver.cjs --reps 20 --json ctxrobust.json   # about 45 minutes
+```
+
+Two layouts: L6 is the six cells used above; L24 adds a third attribute (24 cells, the smallest
+about 60 users a period). Three kinds of heterogeneity: **additive** in the attributes, as before;
+**residual**, an independent effect per arm and cell with the same total spread, none of which
+decomposes by attribute; and **checkerboard** (L6), where the best arm alternates between two arms
+in a pattern no single attribute separates. The **hybrid** refits OR-TS every period with
+GrowthBook's current tree leaves as its cells.
+
+| scenario | Contextual OR-TS | GrowthBook contextual | Hybrid | OR-TS per cell | Context ignored |
+|---|---:|---:|---:|---:|---:|
+| L6 additive, no shifts | 832 | 1017 | 1079 | 814 | 2755 |
+| L6 additive, shifts | 813 | 1246 | 1121 | 842 | 2828 |
+| L6 residual, no shifts | 792 | 1005 | 1064 | 788 | 4615 |
+| L6 residual, shifts | 805 | 1240 | 1098 | 800 | 4896 |
+| L6 checkerboard, no shifts | 869 | 1394 | 1493 | 688 | 3990 |
+| L6 checkerboard, shifts | 784 | 2161 | 1642 | 809 | 4305 |
+| L24 additive, no shifts | 1296 | 1702 | 1686 | 1403 | 3850 |
+| L24 additive, shifts | 1299 | 2091 | 1963 | 1452 | 4062 |
+| L24 residual, no shifts | 1414 | 3886 | 4008 | 1449 | 7360 |
+| L24 residual, shifts | 1455 | 4444 | 4264 | 1425 | 7613 |
+
+**Verdicts.**
+
+- **H1 holds.** In all four non-additive L6 scenarios contextual OR-TS has lower regret than
+  GrowthBook contextual: +214 ± 46 (4.7 SE) and +435 ± 84 (5.2 SE) for residual, +525 ± 178
+  (2.9 SE) and +1378 ± 176 (7.8 SE) for checkerboard, without and with shifts.
+- **H2 holds.** Contextual OR-TS does not lean on additivity: its regret in residual is within
+  5% of additive (832 to 792 without shifts, 813 to 805 with).
+- **H3 fails, in all four L24 scenarios.** The hybrid is not lower than GrowthBook contextual by
+  two standard errors anywhere: +16 ± 48, +128 ± 133, −123 ± 108 and +181 ± 123 (GrowthBook minus
+  hybrid; additive and residual, without and with shifts).
+- **H4 holds.** Contextual OR-TS over the full 24-cell cross beats GrowthBook contextual in all
+  four L24 scenarios, by 4.2 to 15.3 standard errors, though some cells hold 0.3% of traffic.
+
+**What H3's failure says.** Using GrowthBook's leaves as cells keeps the leaves' mistakes. The tree
+splits on how much a segment converts rather than on which arm wins there, and with eight leaves
+for 24 cells it has to merge cells. Once two cells with different best arms share a leaf, no model
+fitted inside the leaf can separate them. The hybrid is also worse than contextual OR-TS over the
+full cross in every scenario here. So the cells should come from the attributes, not from this
+tree; for more attributes than a full cross can hold, the next step is to give the model additive
+terms per attribute, not to borrow the tree's partition.
+
+**Exploratory, no prediction.**
+
+- The hybrid did gain on GrowthBook under common shifts (+124, +142 and +519 in the L6 scenarios
+  with shifts), which is the per-period intercept at work, and lost slightly without them.
+- The checkerboard hurt GrowthBook's tree far more than OR-TS: from additive to checkerboard with
+  shifts its regret rose from 1246 to 2161, while contextual OR-TS went from 813 to 784.
+- OR-TS per cell beat contextual OR-TS in the L6 checkerboard without shifts (688 against 869,
+  −181 ± 61, 2.9 SE). There the heterogeneity sits in two of the four arms and is large, which a
+  prior with one exchangeable variance fits poorly. Contextual OR-TS beat per-cell OR-TS in L24
+  additive (by 107 ± 44 and 154 ± 37), where cells are thin and pooling pays.
+- GrowthBook's tree used 4.8 to 5.7 leaves on six cells and all eight on 24.
+
 ## Limits
 
 One environment per benchmark, not a sweep; binomial metrics only; and the non-contextual SQL
 reduction is reconstructed, not run. In the contextual benchmark the cells are the full cross of
 the attribute levels, six of them. With many attributes that cross is too fine to use directly,
-and the cells would have to come from somewhere, such as the leaves of a tree like GrowthBook's.
+and the cells would have to come from somewhere. Borrowing GrowthBook's tree leaves does not work (see the pre-registered robustness runs above); additive terms per attribute are the next step.
