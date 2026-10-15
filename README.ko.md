@@ -292,6 +292,22 @@ OR-TS입니다. 기본적으로 매 배치 후 주변 가능도로 다시 추정
 일치하는 셀은 합쳐지고 일치하지 않는 셀은 분리됩니다. 셀이 하나일 때 이
 클래스는 `LogisticBandit` 을 재현합니다.
 
+셀이 속성 수준의 교차라면 셀을 dict로 넘기거나(`attributes=[...]` 와 함께
+tuple로 넘겨도 됩니다), 각 속성이 셀 잔차와 별도로 자기 분산성분
+`attribute_sd` 를 갖습니다. 그러면 기기가 같은 셀은 국가가 달라도 기기 항을
+통해 서로 정보를 빌려 오고, 모든 성분은 고정하지 않는 한 주변 가능도로
+추정됩니다.
+
+```python
+cells = [{"device": d, "country": k} for d in ("mobile", "desktop") for k in ("KR", "US")]
+bandit = ContextualLogisticBandit(arms=["A", "B", "C"], cells=cells)
+bandit.update({("mobile", "KR"): {...}, ...})   # 셀 키는 수준 tuple
+bandit.variance_components                      # {'device': ..., 'country': ..., 'residual': ...}
+```
+
+속성마다 열이 하나씩 있는 표에서는
+`allocate_cells_from_rows(rows, cell=["device", "country"])` 가 같은 일을 합니다.
+
 `benchmarks/growthbook/ctxbench.py` 는 이것을 GrowthBook의 컨텍스추얼
 밴딧 엔진과 나란히 실행합니다. 감쇠, 나중에 합류하는 arm이나 셀, 연속형
 공변량은 아직 지원하지 않습니다.

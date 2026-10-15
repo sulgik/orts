@@ -191,3 +191,18 @@ def test_sql_counts_each_user_once_inside_a_closed_window():
 def test_the_warehouse_example_runs_and_finds_the_best_arm(capsys):
     runpy.run_path(str(ROOT / "examples" / "from_warehouse.py"), run_name="__main__")
     assert "leader: C" in capsys.readouterr().out
+
+
+def test_attribute_columns_make_tuple_cells():
+    rows = [dict(r, device=d, country=k) for r in ROWS for d in ("mobile", "desktop") for k in ("KR", "US")]
+    batches = batches_from_rows(rows, cell=["device", "country"])
+    assert set(batches[0]) == {("mobile", "KR"), ("mobile", "US"), ("desktop", "KR"), ("desktop", "US")}
+    bandit = ContextualLogisticBandit(["A", "B", "C"], sorted(batches[0], key=str),
+                                      attributes=["device", "country"])
+    for batch in batches:
+        bandit.update(batch)
+    expected = bandit.allocate(draw=3000, rng=np.random.default_rng(5))
+    got = allocate_cells_from_rows(rows, cell=["device", "country"], draw=3000, seed=5)
+    assert set(got) == set(expected)
+    for c in got:
+        assert shares(got[c]) == shares(expected[c])

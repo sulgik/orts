@@ -292,6 +292,22 @@ independent OR-TS per cell. By default it is re-estimated after every batch
 by marginal likelihood, so cells that agree pool and cells that disagree
 separate. With one cell the class reproduces `LogisticBandit`.
 
+When the cells are crosses of attributes, pass them as dicts (or as tuples
+with `attributes=[...]`) and each attribute gets a variance component of its
+own, `attribute_sd`, before the cell residual. Cells sharing a device then
+borrow through the device term even when their countries differ, and every
+component is estimated by marginal likelihood unless fixed:
+
+```python
+cells = [{"device": d, "country": k} for d in ("mobile", "desktop") for k in ("KR", "US")]
+bandit = ContextualLogisticBandit(arms=["A", "B", "C"], cells=cells)
+bandit.update({("mobile", "KR"): {...}, ...})   # cells are keyed by level tuples
+bandit.variance_components                      # {'device': ..., 'country': ..., 'residual': ...}
+```
+
+`allocate_cells_from_rows(rows, cell=["device", "country"])` does the same
+from a table with one column per attribute.
+
 `benchmarks/growthbook/ctxbench.py` runs it next to GrowthBook's contextual
 bandit engine. Decay, arms or cells that join later, and continuous
 covariates are not covered yet.

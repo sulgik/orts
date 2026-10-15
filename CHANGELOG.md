@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- `ContextualLogisticBandit` takes cells that are crosses of attributes
+  (dicts, or tuples with `attributes=[...]`) and gives each attribute its own
+  variance component, `attribute_sd`, before the cell residual
+  (`interaction_sd`). The prior covariance is a sum of Kronecker terms, and
+  every `"auto"` component is estimated by coordinate search over the
+  marginal likelihood. Without attributes the results are unchanged.
+- `allocate_cells_from_rows` and `batches_from_rows` take `cell` as a list of
+  columns; each cell is then the tuple of their values.
+
 ## 2.5.0 (2026-10)
 
 - `allocate_from_rows`, `allocate_cells_from_rows`, `batches_from_rows` and

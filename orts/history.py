@@ -28,7 +28,7 @@ Rows may be dicts, ``sqlite3.Row`` objects, or anything with ``to_dict("records"
 
 import math
 from collections.abc import Mapping
-from typing import Any, Dict, Hashable, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Hashable, Iterable, List, Optional, Sequence, Union
 
 import numpy as np
 
@@ -37,6 +37,8 @@ from .logisticbandit import Allocation, LogisticBandit
 
 Batch = Dict[str, List[float]]
 CellBatch = Dict[Hashable, Batch]
+#: One column naming the cell, or several whose level tuple is the cell.
+CellColumns = Union[str, Sequence[str]]
 
 
 def _records(rows: Any) -> List[Any]:
@@ -67,12 +69,19 @@ def _count(row: Any, column: str, index: int) -> float:
     return number
 
 
+def _cell_of(row: Any, cell: CellColumns, index: int) -> Hashable:
+    if isinstance(cell, str):
+        return _field(row, cell, index)
+    return tuple(_field(row, column, index) for column in cell)
+
+
 def _group(rows: Any, period: str, arm: str, exposures: str, events: str,
-           cell: Optional[str]) -> List[Any]:
+           cell: Optional[CellColumns]) -> List[Any]:
     """Sum the counts of each (period, cell, arm), and return the periods in order.
 
     The result is a list of ``(period, batch)``; a batch is ``{arm: [n, s]}``, or
-    ``{cell: {arm: [n, s]}}`` when ``cell`` names a column.
+    ``{cell: {arm: [n, s]}}`` when ``cell`` names a column (or, for several
+    columns, ``{(level, ...): {arm: [n, s]}}``).
     """
     records = _records(rows)
     if not records:
@@ -84,7 +93,7 @@ def _group(rows: Any, period: str, arm: str, exposures: str, events: str,
         n, s = _count(row, exposures, i), _count(row, events, i)
         slot = table.setdefault(p, {})
         if cell is not None:
-            slot = slot.setdefault(_field(row, cell, i), {})
+            slot = slot.setdefault(_cell_of(row, cell, i), {})
         pair = slot.setdefault(a, [0.0, 0.0])
         pair[0] += n
         pair[1] += s
@@ -116,12 +125,13 @@ def _group(rows: Any, period: str, arm: str, exposures: str, events: str,
 
 def batches_from_rows(rows: Iterable[Any], *, period: str = "period", arm: str = "arm",
                       exposures: str = "exposures", events: str = "events",
-                      cell: Optional[str] = None) -> List[Any]:
+                      cell: Optional[CellColumns] = None) -> List[Any]:
     """Rows of ``(period, arm, exposures, events)`` as the list of batches ``update`` takes.
 
     Batches come back in period order.  Rows sharing a period and arm are summed.
     With ``cell`` naming a column, each batch is ``{cell: {arm: [exposures, events]}}``
     for ``ContextualLogisticBandit.update``; otherwise ``{arm: [exposures, events]}``.
+    With ``cell`` a list of columns, each cell is the tuple of their values.
     String periods sort as text, which is right for ISO dates and hours.
     """
     return [batch for _, batch in _group(rows, period, arm, exposures, events, cell)]
@@ -177,7 +187,7 @@ def allocate_from_rows(rows: Iterable[Any], arms: Optional[Sequence[str]] = None
                            aggressive=aggressive, rng=np.random.default_rng(seed))
 
 
-def allocate_cells_from_rows(rows: Iterable[Any], *, cell: str = "cell",
+def allocate_cells_from_rows(rows: Iterable[Any], *, cell: CellColumns = "cell",
                              arms: Optional[Sequence[str]] = None,
                              period: str = "period", arm: str = "arm",
                              exposures: str = "exposures", events: str = "events",
@@ -189,10 +199,16 @@ def allocate_cells_from_rows(rows: Iterable[Any], *, cell: str = "cell",
     The model is ``ContextualLogisticBandit`` (experimental): one logistic fit per
     period with a fresh intercept per cell, and a hierarchical prior over the
     arm-by-cell contrasts.  ``arms`` defaults to every arm in ``rows``, ordered by
-    name, and the cells are the values of the ``cell`` column.  The remaining
-    keyword arguments (``interaction_sd``, ``arm_effect_prior_sd``) go to the
+    name, and the cells are the values of the ``cell`` column.  With ``cell`` a
+    list of attribute columns, say ``["device", "country"]``, each cell is the
+    tuple of their values and the model gets one variance component per
+    attribute (``attributes=cell``).  The remaining keyword arguments
+    (``interaction_sd``, ``attribute_sd``, ``arm_effect_prior_sd``) go to the
     ``ContextualLogisticBandit`` constructor.  Returns ``{cell: Allocation}``.
     """
+    if not isinstance(cell, str):
+        cell = list(cell)
+        bandit_kwargs.setdefault("attributes", cell)
     grouped = _group(rows, period, arm, exposures, events, cell)
     seen_arms = sorted({a for _, batch in grouped for group in batch.values() for a in group})
     cells = sorted({c for _, batch in grouped for c in batch}, key=str)

@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from orts import ContextualLogisticBandit, LogisticBandit
+from orts.contextual import RESIDUAL
 
 ARMS = ["A", "B", "C"]
 BATCHES = [
@@ -178,3 +179,91 @@ def test_rejects_bad_input():
         bandit.update({"x": {"A": [10, 1], "D": [10, 2]}})
     with pytest.raises(ValueError):
         bandit.update({"x": {"A": [10, 11], "B": [10, 2]}})
+
+
+# ------------------------------------------------------------------ attributes
+DEVICES, COUNTRIES = ("mobile", "desktop"), ("KR", "US", "JP")
+CROSS = [{"device": d, "country": k} for d in DEVICES for k in COUNTRIES]
+
+
+def cross_batch(contrast, rng, n=20000):
+    """One balanced batch over CROSS; ``contrast(device, country)`` is the arms' log-odds contrasts."""
+    batch = {}
+    for cell in CROSS:
+        key = (cell["device"], cell["country"])
+        p = 1.0 / (1.0 + np.exp(-(-3.0 + rng.normal(0.0, 0.3) + np.asarray(contrast(*key)))))
+        batch[key] = {a: [n, rng.binomial(n, p[i])] for i, a in enumerate(ARMS)}
+    return batch
+
+
+def test_dict_cells_are_tuples_of_levels():
+    bandit = ContextualLogisticBandit(ARMS, CROSS)
+    assert bandit.attributes == ["device", "country"]
+    assert bandit.cells[0] == ("mobile", "KR")
+    assert set(bandit.variance_components) == {"device", "country", RESIDUAL}
+    bandit.update(cross_batch(lambda d, k: [0.1, 0.0, 0.0], np.random.default_rng(0)))
+    by_dict = bandit.contrasts({"country": "US", "device": "desktop"})
+    by_tuple = bandit.contrasts(("desktop", "US"))
+    np.testing.assert_array_equal(by_dict[0], by_tuple[0])
+    out = bandit.allocate([{"device": "mobile", "country": "JP"}], draw=1000,
+                          rng=np.random.default_rng(0))
+    assert list(out) == [("mobile", "JP")]
+
+
+def test_vanishing_attribute_sd_is_the_plain_model():
+    batch = cross_batch(lambda d, k: [0.2, 0.1, 0.0], np.random.default_rng(2))
+    plain = ContextualLogisticBandit(ARMS, [tuple(c.values()) for c in CROSS], interaction_sd=0.3)
+    attr = ContextualLogisticBandit(ARMS, CROSS, interaction_sd=0.3, attribute_sd=1e-6)
+    plain.update(batch)
+    attr.update(batch)
+    np.testing.assert_allclose(attr.mu, plain.mu, atol=1e-8)
+    np.testing.assert_allclose(attr.covariance(), plain.covariance(), atol=1e-9)
+
+
+def test_attribute_with_a_level_per_cell_adds_to_the_residual():
+    # S_d = I when no two cells share a level, so omega_d^2 + omega^2 is the residual
+    cells = [("x", 1), ("y", 2)]
+    attr = ContextualLogisticBandit(ARMS, cells, attributes=["name", "id"],
+                                    interaction_sd=0.2, attribute_sd={"name": 0.3, "id": 0.1})
+    plain = ContextualLogisticBandit(ARMS, cells, interaction_sd=math.sqrt(0.04 + 0.09 + 0.01))
+    for batch in BATCHES:
+        attr.update({cells[0]: batch["x"], cells[1]: batch["y"]})
+        plain.update({cells[0]: batch["x"], cells[1]: batch["y"]})
+    np.testing.assert_allclose(attr.mu, plain.mu, atol=1e-8)
+    np.testing.assert_allclose(attr.covariance(), plain.covariance(), atol=1e-9)
+
+
+def test_thin_cell_borrows_most_from_cells_on_its_level():
+    rng = np.random.default_rng(3)
+    bandit = ContextualLogisticBandit(ARMS, CROSS, interaction_sd=0.05,
+                                      attribute_sd={"device": 0.5, "country": 0.05})
+    batch = cross_batch(lambda d, k: [0.3 if d == "mobile" else -0.3, 0.0, 0.0], rng)
+    batch[("mobile", "KR")] = {a: [200, v[1] * 200 // v[0]] for a, v in batch[("mobile", "KR")].items()}
+    bandit.update(batch)
+    # the thin cell's first contrast follows its device, not the overall mean
+    assert bandit.contrasts(("mobile", "KR"))[0][0] > 0.15
+    assert bandit.contrasts(("desktop", "KR"))[0][0] < -0.15
+
+
+def test_auto_attribute_sd_finds_the_attribute_that_matters():
+    rng = np.random.default_rng(4)
+    bandit = ContextualLogisticBandit(ARMS, CROSS)
+    for _ in range(10):
+        bandit.update(cross_batch(lambda d, k: [0.4 if d == "mobile" else -0.4, 0.0, 0.0], rng))
+    sds = bandit.variance_components
+    assert sds["device"] >= 0.2
+    assert sds["country"] <= 0.05
+    assert sds[RESIDUAL] <= 0.05
+
+
+def test_rejects_bad_attribute_input():
+    with pytest.raises(ValueError):
+        ContextualLogisticBandit(ARMS, [("mobile",)], attributes=["device", "country"])
+    with pytest.raises(ValueError):
+        ContextualLogisticBandit(ARMS, [{"device": "mobile"}, {"country": "KR"}])
+    with pytest.raises(ValueError):
+        ContextualLogisticBandit(ARMS, CROSS, attribute_sd={"device": 0.2})
+    with pytest.raises(ValueError):
+        ContextualLogisticBandit(ARMS, CROSS, attribute_sd="learned")
+    with pytest.raises(ValueError):
+        ContextualLogisticBandit(ARMS, [{"residual": 1}])
