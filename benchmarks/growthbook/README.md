@@ -188,9 +188,73 @@ terms per attribute, not to borrow the tree's partition.
   additive (by 107 ± 44 and 154 ± 37), where cells are thin and pooling pays.
 - GrowthBook's tree used 4.8 to 5.7 leaves on six cells and all eight on 24.
 
+## Contrast-splitting tree and per-attribute components (pre-registered)
+
+`ctxuplift.py` asks why H3 failed above, and gives the per-attribute contextual model its first
+test. The hypotheses and failure criteria are in `PREREG_contextual_uplift.md` (commit `da6e1b4`,
+2026-10-15 10:10 KST), written before the runs. The four L24 scenarios of the robustness runs, with
+the same environment, engine bundle, seeds and settings; 20 paired runs each.
+
+The **contrast tree** gets GrowthBook's tree's input (the run's pooled counts per cell and arm),
+its cap of eight leaves and its 100 users per leaf, and changes only the criterion: a split scores
+the likelihood-ratio statistic for the arms' log-odds contrasts differing between its two sides,
+so a difference in base rate alone scores nothing. The **contrast-tree hybrid** refits OR-TS on its
+leaves exactly as the hybrid does on GrowthBook's. The **per-attribute model** is
+`ContextualLogisticBandit` over the full cross with `attributes=["region", "device", "plan"]`.
+
+```bash
+python ctxuplift.py --driver driver.cjs --reps 20 --json ctxuplift.json   # about 40 minutes
+```
+
+| scenario | Contextual OR-TS | Per-attribute | GrowthBook contextual | Hybrid, GrowthBook leaves | Hybrid, contrast tree |
+|---|---:|---:|---:|---:|---:|
+| L24 additive, no shifts | 1282 | 969 | 1686 | 1852 | 1492 |
+| L24 additive, shifts | 1276 | 1063 | 2065 | 1916 | 1555 |
+| L24 residual, no shifts | 1394 | 1469 | 4063 | 3974 | 3210 |
+| L24 residual, shifts | 1449 | 1453 | 4704 | 4336 | 3266 |
+
+**Verdicts.**
+
+- **H5 holds.** The contrast-tree hybrid has lower regret than GrowthBook contextual in all four
+  scenarios: +194 ± 94 (2.1 SE, barely past the bar), +510 ± 132 (3.9 SE), +853 ± 129 (6.6 SE)
+  and +1438 ± 226 (6.4 SE) (GrowthBook minus contrast-tree hybrid; additive then residual,
+  without and with shifts).
+- **H6 holds.** It also beats the hybrid on GrowthBook's leaves in all four: +360 ± 104 (3.5 SE),
+  +361 ± 113 (3.2 SE), +764 ± 100 (7.7 SE), +1070 ± 188 (5.7 SE).
+- **H7 holds.** In both residual scenarios contextual OR-TS over the full cross beats the
+  contrast-tree hybrid by about 1,800 (12.2 and 12.4 SE).
+- **H8 holds.** In both additive scenarios the per-attribute model beats contextual OR-TS with
+  one exchangeable component: by 313 ± 35 (9.0 SE, lower in 20 of 20) and 213 ± 36 (6.0 SE).
+- **H9 fails.** In residual without shifts the per-attribute model's regret is 5.4% above
+  contextual OR-TS's (1469 against 1394, −75 ± 24, 3.2 SE), past the 5% allowed. With shifts it
+  is 0.3% above (1453 against 1449).
+
+**What this says.** H3 failed largely because of GrowthBook's splitting criterion: with only the
+criterion changed, the same eight-leaf partition beats GrowthBook in every scenario. The
+partition still costs a great deal. Where the contrasts do not decompose by attribute, eight
+leaves for 24 cells leave the contrast-tree hybrid at more than twice contextual OR-TS's regret,
+so leaves of a tree are no substitute for the full cross whatever the criterion. Where the
+contrasts are additive, per-attribute components are the better way to use the attributes: they
+cut contextual OR-TS's regret by 17 to 24%. Where nothing is additive they are not free: without
+shifts they cost 5.4%, slightly more than the pre-registered allowance.
+
+**Exploratory, no prediction.**
+
+- In the additive scenarios the contrast-tree hybrid is also worse than contextual OR-TS over the
+  full cross, by 210 ± 57 and 279 ± 66 (3.7 and 4.2 SE).
+- The per-attribute model beats GrowthBook contextual in all four scenarios, by 717 to 3,251.
+- Both trees used all eight leaves in every run.
+- The re-run columns do not reproduce the robustness runs exactly (GrowthBook contextual
+  1686 against 1702, the GrowthBook-leaf hybrid 1852 against 1686 in additive without shifts),
+  so paired runs on a seed are not bit-for-bit repeatable across these runs. Contextual OR-TS also moved
+  (1282 against 1296), although its fit is unchanged to 1e-12: the Monte Carlo allocation turns a
+  tiny difference into a different multinomial draw, and the run diverges from there. Within each
+  run the policies are paired as designed. In additive without shifts the GrowthBook-leaf hybrid
+  now does worse than GrowthBook (−166 ± 49), where the robustness runs had them level (+16 ± 48).
+
 ## Limits
 
 One environment per benchmark, not a sweep; binomial metrics only; and the non-contextual SQL
 reduction is reconstructed, not run. In the contextual benchmark the cells are the full cross of
 the attribute levels, six of them. With many attributes that cross is too fine to use directly,
-and the cells would have to come from somewhere. Borrowing GrowthBook's tree leaves does not work (see the pre-registered robustness runs above); additive terms per attribute are the next step.
+and the cells would have to come from somewhere. Borrowing GrowthBook's tree leaves does not work, and a tree that splits on the contrasts does better but still loses to the full cross (see the two pre-registered runs above). Per-attribute variance components over the full cross do best where the attributes explain the contrasts; they have been tested only on these four scenarios.
