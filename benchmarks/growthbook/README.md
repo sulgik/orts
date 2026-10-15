@@ -127,7 +127,8 @@ What the rows say:
 `ctxrobust.py` answers the two weak points of the contextual comparison above: one kind of
 heterogeneity (additive in the attributes) and six cells. The design, four hypotheses and their
 failure criteria were committed before any run, in `PREREG_contextual_robustness.md` (commit
-`406babe`). Everything below is judged against them as written. Same engine, commit and settings as
+`37e700f`, authored 2026-10-14 17:59 KST; it was first pushed as `406babe` on the
+`contextual-robustness` branch, an hour before the runs started). Everything below is judged against them as written. Same engine, commit and settings as
 `ctxbench.py`; 20 paired runs per scenario; regret against each cell's own best arm.
 
 ```bash
